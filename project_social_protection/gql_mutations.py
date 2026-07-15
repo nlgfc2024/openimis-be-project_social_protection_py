@@ -9,7 +9,8 @@ from core.gql.gql_mutations.base_mutation import (
     BaseHistoryModelUpdateMutationMixin, BaseHistoryModelDeleteMutationMixin
 )
 from core.schema import OpenIMISMutation
-from location.models import Location
+from core.models import User
+from location.models import Location, Hotspot
 from social_protection.models import BenefitPlan, Beneficiary, GroupBeneficiary
 
 from project_social_protection.apps import ProjectSocialProtectionConfig
@@ -24,15 +25,57 @@ from project_social_protection.services import (
 _MUTATION_MODULE = "project_social_protection"
 
 
+def _resolve_malawi_fields(data):
+    """Resolve the Malawi (sprint) FK inputs on a project mutation payload in place:
+    hotspot_id -> Hotspot, foreman_id / supervisor_id -> core.User. `known_place` is a
+    plain string and passes through untouched."""
+    if 'hotspot_id' in data:
+        hotspot_id = data.pop('hotspot_id')
+        data['hotspot'] = Hotspot.objects.get(id=hotspot_id) if hotspot_id else None
+    if 'foreman_id' in data:
+        foreman_id = data.pop('foreman_id')
+        data['foreman'] = User.objects.get(id=foreman_id) if foreman_id else None
+    if 'supervisor_id' in data:
+        supervisor_id = data.pop('supervisor_id')
+        data['supervisor'] = User.objects.get(id=supervisor_id) if supervisor_id else None
+
+
+def generate_project_name(hotspot, activity, benefit_plan, known_place):
+    """Malawi project name: "Hotspot-Sector-Phase #<n> - Known place".
+    Sector = Activity, Phase = BenefitPlan. <n> is a per-(hotspot, sector, phase) sequence
+    so re-running for the same trio yields Project1, Project2, ... Falls back gracefully
+    when optional parts (hotspot / known_place) are absent."""
+    seq = Project.objects.filter(
+        hotspot=hotspot, activity=activity, benefit_plan=benefit_plan,
+        is_deleted=False,
+    ).count() + 1
+    parts = [p for p in (
+        getattr(hotspot, 'name', None),
+        getattr(activity, 'name', None),
+        getattr(benefit_plan, 'name', None),
+    ) if p]
+    name = f"{'-'.join(parts)} #{seq}"
+    if known_place:
+        name = f"{name} - {known_place}"
+    return name
+
+
 class CreateProjectInputType(OpenIMISMutation.Input):
     benefit_plan_id = graphene.ID(required=True)
-    name = graphene.String(required=True)
+    # name is auto-generated from hotspot/activity/benefit_plan/known_place; kept optional
+    # so a client may still send one, but it is overwritten on create.
+    name = graphene.String(required=False)
     status = graphene.String(required=False)
     activity_id = graphene.ID(required=True)
     location_id = graphene.ID(required=True)
     target_beneficiaries = graphene.Int(required=True)
     working_days = graphene.Int(required=True)
     allows_multiple_enrollments = graphene.Boolean(required=False)
+    # Malawi (sprint) fields
+    hotspot_id = graphene.ID(required=False)
+    known_place = graphene.String(required=False)
+    foreman_id = graphene.ID(required=False)
+    supervisor_id = graphene.ID(required=False)
 
 
 class CreateProjectMutation(
@@ -64,6 +107,12 @@ class CreateProjectMutation(
         data.setdefault(
             "status", Project._meta.get_field("status").get_default()
         )
+        _resolve_malawi_fields(data)
+        # Name is derived, not client-supplied.
+        data["name"] = generate_project_name(
+            data.get("hotspot"), data["activity"], data["benefit_plan"],
+            data.get("known_place"),
+        )
 
         service = ProjectService(user)
         res = service.create(data)
@@ -90,6 +139,11 @@ class UpdateProjectInputType(OpenIMISMutation.Input):
     target_beneficiaries = graphene.Int(required=False)
     working_days = graphene.Int(required=False)
     allows_multiple_enrollments = graphene.Boolean(required=False)
+    # Malawi (sprint) fields
+    hotspot_id = graphene.ID(required=False)
+    known_place = graphene.String(required=False)
+    foreman_id = graphene.ID(required=False)
+    supervisor_id = graphene.ID(required=False)
 
 
 class UpdateProjectMutation(
@@ -123,6 +177,8 @@ class UpdateProjectMutation(
             data["location"] = Location.objects.get(
                 uuid=data.pop("location_id")
             )
+        # Editable Malawi fields; the auto-generated name is left intact on update.
+        _resolve_malawi_fields(data)
 
         service = ProjectService(user)
         res = service.update(data)

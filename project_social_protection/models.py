@@ -50,6 +50,23 @@ class Project(core_models.HistoryBusinessModel):
     working_days = models.SmallIntegerField(null=False)
     allows_multiple_enrollments = models.BooleanField(default=False)
 
+    # --- Malawi (sprint) fields. All nullable so pre-existing rows stay valid. ---
+    # District / Traditional Authority are NOT stored: they are derived from `location`
+    # by walking the parent chain (District=type R, TA=type D).
+    hotspot = models.ForeignKey(
+        'location.Hotspot', models.DO_NOTHING, null=True, blank=True,
+        related_name='projects',
+    )
+    known_place = models.CharField(max_length=255, null=True, blank=True)
+    foreman = models.ForeignKey(
+        'core.User', models.DO_NOTHING, null=True, blank=True,
+        related_name='foreman_projects',
+    )
+    supervisor = models.ForeignKey(
+        'core.User', models.DO_NOTHING, null=True, blank=True,
+        related_name='supervisor_projects',
+    )
+
     class Meta:
         db_table = "social_protection_project"
 
