@@ -43,11 +43,12 @@ def _resolve_malawi_fields(data):
 def generate_project_name(hotspot, activity, benefit_plan, known_place):
     """Malawi project name: "Hotspot-Sector-Phase #<n> - Known place".
     Sector = Activity, Phase = BenefitPlan. <n> is a per-(hotspot, sector, phase) sequence
-    so re-running for the same trio yields Project1, Project2, ... Falls back gracefully
-    when optional parts (hotspot / known_place) are absent."""
+    so re-running for the same trio yields Project1, Project2, ... The count includes
+    soft-deleted rows so a number is never reused after a delete; the live-rows unique
+    constraint on (name, benefit_plan) is the real backstop against a concurrent-create
+    race (the loser gets an IntegrityError / validation error and can retry)."""
     seq = Project.objects.filter(
         hotspot=hotspot, activity=activity, benefit_plan=benefit_plan,
-        is_deleted=False,
     ).count() + 1
     parts = [p for p in (
         getattr(hotspot, 'name', None),
@@ -166,6 +167,8 @@ class UpdateProjectMutation(
             data.pop("client_mutation_id")
         if "client_mutation_label" in data:
             data.pop("client_mutation_label")
+        # Name is MIS-derived; never let a client overwrite it on update.
+        data.pop("name", None)
 
         if 'benefit_plan_id' in data:
             data["benefit_plan"] = BenefitPlan.objects.get(

@@ -6,17 +6,41 @@ from project_social_protection.models import Project
 
 
 def validate_project_unique_name(name, benefit_plan_id, uuid=None):
+    if not name or not benefit_plan_id:
+        return []
     instance = Project.objects.filter(
         name=name, benefit_plan__id=benefit_plan_id, is_deleted=False
     ).exclude(id=uuid).first()
     if instance:
-        msg = "project_social_protection.validation.project.name_exists"
-        return [{"message": _(msg % {'name': name})}]  # noqa: F504
+        return [{"message": _(
+            "Project name '%(name)s' already exists for this program."
+        ) % {'name': name}}]
     return []
 
 
 class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
     OBJECT_TYPE = Project
+
+    @classmethod
+    def validate_create(cls, user, **data):
+        bp = data.get('benefit_plan')
+        errors = validate_project_unique_name(
+            data.get('name'), bp.id if bp else data.get('benefit_plan_id')
+        )
+        if errors:
+            raise ValidationError(errors)
+
+    @classmethod
+    def validate_update(cls, user, **data):
+        # name is derived and not sent on update, but guard defensively.
+        bp = data.get('benefit_plan')
+        errors = validate_project_unique_name(
+            data.get('name'),
+            bp.id if bp else data.get('benefit_plan_id'),
+            data.get('id'),
+        )
+        if errors:
+            raise ValidationError(errors)
 
     @classmethod
     def validate_undo_delete(cls, data):
