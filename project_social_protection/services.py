@@ -2,10 +2,17 @@ import logging
 import uuid
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.db.models import Q
 from django.utils.translation import gettext as _
 
 from core.services import BaseService
 from core.signals import register_service_signal
+from social_protection.models import (
+    Beneficiary,
+    GroupBeneficiary,
+    BeneficiaryStatus,
+)
 from project_social_protection.models import (
     Project,
     BeneficiaryProjectTimeEntry,
@@ -59,16 +66,45 @@ class ProjectEnrollmentService:
         INDIVIDUAL: {
             'enrollment_model': BeneficiaryProjectEnrollment,
             'time_entry_model': BeneficiaryProjectTimeEntry,
+            'beneficiary_model': Beneficiary,
             'fk_field': 'beneficiary_id',
             'error_label': 'Beneficiaries',
         },
         GROUP: {
             'enrollment_model': GroupBeneficiaryProjectEnrollment,
             'time_entry_model': GroupBeneficiaryProjectTimeEntry,
+            'beneficiary_model': GroupBeneficiary,
             'fk_field': 'group_beneficiary_id',
             'error_label': 'Group beneficiaries',
         },
     }
+
+    def _validate_enrollable(self, project, beneficiary_ids):
+        """Enforce the invariants that BeneficiaryProjectEnrollment.clean() would —
+        clean() is bypassed because enroll persists via bulk_save. A beneficiary must
+        exist, be ACTIVE, and belong to the same benefit plan (program) as the project."""
+        if not beneficiary_ids:
+            return
+        beneficiary_model = self.config['beneficiary_model']
+        rows = {
+            b['id']: b
+            for b in beneficiary_model.objects.filter(
+                id__in=beneficiary_ids, is_deleted=False
+            ).values('id', 'status', 'benefit_plan_id')
+        }
+        bad = []
+        for bid in beneficiary_ids:
+            b = rows.get(bid)
+            if (b is None
+                    or b['status'] != BeneficiaryStatus.ACTIVE
+                    or b['benefit_plan_id'] != project.benefit_plan_id):
+                bad.append(str(bid))
+        if bad:
+            raise ValueError(
+                _("%(label)s %(ids)s cannot be enrolled: they must exist, be "
+                  "ACTIVE and belong to the project's program.")
+                % {'label': self.config['error_label'], 'ids': ', '.join(bad)}
+            )
 
     def __init__(self, user, enrollment_type):
         self.user = user
@@ -76,13 +112,18 @@ class ProjectEnrollmentService:
         self.config = self.CONFIGS[enrollment_type]
 
     @register_service_signal('project_enrollment_service.enroll_project')
+    @transaction.atomic
     def enroll_project(self, obj_data):
         project_id = obj_data['project_id']
         beneficiary_ids = {
             uuid.UUID(str(bid)) for bid in obj_data.get('ids', [])
         }
 
-        project = Project.objects.get(id=project_id)
+        # Lock the project row for the duration so concurrent enrolls of the same
+        # project serialize (avoids the read-then-write race on the exclusive-enroll check).
+        project = Project.objects.select_for_update().filter(id=project_id).first()
+        if project is None:
+            raise ValueError(_("Project %(id)s does not exist.") % {'id': project_id})
         enrollment_model = self.config['enrollment_model']
         fk_field = self.config['fk_field']
 
@@ -98,6 +139,9 @@ class ProjectEnrollmentService:
 
         to_enroll = beneficiary_ids - currently_enrolled
         to_unenroll = currently_enrolled - beneficiary_ids
+
+        # clean() is skipped under bulk_save; enforce ACTIVE + same-program here.
+        self._validate_enrollable(project, to_enroll)
 
         if not project.allows_multiple_enrollments and to_enroll:
             already_enrolled_elsewhere = set(
@@ -141,6 +185,7 @@ class ProjectEnrollmentService:
     @register_service_signal(
         'project_enrollment_service.bulk_update_time_entries'
     )
+    @transaction.atomic
     def bulk_update_time_entries(self, obj_data):
         time_entries_data = obj_data.get('time_entries', [])
 
@@ -164,6 +209,18 @@ class ProjectEnrollmentService:
                 _('Invalid enrollment IDs: %(ids)s') % {'ids': invalid_ids}
             )
 
+        # Reject duplicate (enrollment, day) pairs within the batch — they would
+        # otherwise fight over the same unique row.
+        seen = set()
+        for entry in time_entries_data:
+            key = (str(entry['enrollment_id']), entry['day_number'])
+            if key in seen:
+                raise ValidationError(
+                    _('Duplicate time entry for enrollment %(e)s day %(d)s.')
+                    % {'e': entry['enrollment_id'], 'd': entry['day_number']}
+                )
+            seen.add(key)
+
         for entry in time_entries_data:
             enrollment = enrollment_map[str(entry['enrollment_id'])]
             project = enrollment.project
@@ -180,6 +237,28 @@ class ProjectEnrollmentService:
                 raise ValidationError(
                     _('Percent complete must be between 0 and 100.')
                 )
+
+        # Upsert: for entries submitted without an id, resolve the existing row by
+        # (enrollment, day_number) so a resubmit updates instead of hitting the
+        # unique_together constraint. unique_together=('enrollment','day_number').
+        entries_without_id = [e for e in time_entries_data if not e.get('id')]
+        if entries_without_id:
+            lookup = Q()
+            for e in entries_without_id:
+                lookup |= Q(
+                    enrollment_id=e['enrollment_id'],
+                    day_number=e['day_number'],
+                )
+            existing = {
+                (str(te.enrollment_id), te.day_number): te.id
+                for te in time_entry_model.objects.filter(
+                    lookup, is_deleted=False
+                )
+            }
+            for e in entries_without_id:
+                match = existing.get((str(e['enrollment_id']), e['day_number']))
+                if match:
+                    e['id'] = match
 
         time_entry_model.bulk_save(
             data_list=time_entries_data,

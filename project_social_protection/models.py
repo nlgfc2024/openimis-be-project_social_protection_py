@@ -204,8 +204,16 @@ class GroupBeneficiaryProjectTimeEntry(AbstractProjectTimeEntry):
 # `_meta.original_attrs['db_table']` (read by makemigrations' ModelState.from_model) so
 # the migration state matches runtime and no DDL is generated for these tables.
 def _pin_history_table(model, table_name):
-    model.history.model._meta.db_table = table_name
-    model.history.model._meta.original_attrs['db_table'] = table_name
+    hist_meta = model.history.model._meta
+    hist_meta.db_table = table_name
+    hist_meta.original_attrs['db_table'] = table_name
+    # Fail loudly at import if a Django / simple-history upgrade ever makes this
+    # reassignment a no-op — otherwise the next makemigrations would silently emit an
+    # AlterModelTable renaming a production history table. Pair with a CI job running
+    # `manage.py makemigrations --check --dry-run` as a second guard.
+    assert hist_meta.db_table == table_name, (
+        f"history table pin failed for {model.__name__}: {hist_meta.db_table}"
+    )
 
 
 _pin_history_table(Activity, "social_protection_historicalactivity")

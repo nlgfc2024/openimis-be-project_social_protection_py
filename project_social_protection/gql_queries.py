@@ -166,29 +166,28 @@ class ProjectEligibilityFilterMixin:
         if not value:
             return queryset
 
-        project = Project.objects.get(id=value)
+        project = Project.objects.filter(id=value).first()
+        if project is None:
+            return queryset.none()
         enrollment_model = self._get_enrollment_model()
         beneficiary_field = self._get_beneficiary_field()
 
+        # Keep the "enrolled elsewhere" lookup a lazy queryset so it compiles to a
+        # correlated subquery instead of materializing every id into a Python set.
         if project.allows_multiple_enrollments:
-            enrolled_in_exclusive = set(
-                enrollment_model.objects.filter(
-                    project__allows_multiple_enrollments=False,
-                    is_deleted=False
-                ).exclude(
-                    project_id=project.id
-                ).values_list(f'{beneficiary_field}_id', flat=True)
-            )
+            enrolled_in_exclusive = enrollment_model.objects.filter(
+                project__allows_multiple_enrollments=False,
+                is_deleted=False,
+            ).exclude(
+                project_id=project.id
+            ).values_list(f'{beneficiary_field}_id', flat=True)
             return queryset.exclude(id__in=enrolled_in_exclusive)
-        else:
-            enrolled_elsewhere = set(
-                enrollment_model.objects.filter(
-                    is_deleted=False
-                ).exclude(
-                    project_id=project.id
-                ).values_list(f'{beneficiary_field}_id', flat=True)
-            )
-            return queryset.exclude(id__in=enrolled_elsewhere)
+        enrolled_elsewhere = enrollment_model.objects.filter(
+            is_deleted=False,
+        ).exclude(
+            project_id=project.id
+        ).values_list(f'{beneficiary_field}_id', flat=True)
+        return queryset.exclude(id__in=enrolled_elsewhere)
 
     def filter_enrolled_in_project(self, queryset, name, value):
         if not value:

@@ -25,6 +25,13 @@ class Migration(migrations.Migration):
 
     # State-only: these tables already exist (they were social_protection_*)
     # and are adopted here unchanged. database_operations=[] => no DDL.
+    #
+    # IMPORTANT COUPLING: the physical tables are created ONLY by social_protection's
+    # legacy CreateModel migrations (~0015–0023). This module never issues the DDL — it
+    # merely takes ownership of Django's state. Therefore social_protection's old
+    # CreateModel migrations MUST NOT be squashed/removed, or fresh installs would run
+    # this migration against non-existent tables. (Dependency on social_protection/0024
+    # transitively pulls that creation chain in first.)
     operations = [
         migrations.SeparateDatabaseAndState(
             state_operations=[
