@@ -143,6 +143,17 @@ class ProjectEnrollmentService:
         # clean() is skipped under bulk_save; enforce ACTIVE + same-program here.
         self._validate_enrollable(project, to_enroll)
 
+        if len(beneficiary_ids) > project.target_beneficiaries:
+            msg = _(
+                "Cannot enroll %(count)s %(label)s: exceeds the "
+                "project's target of %(target)s beneficiaries."
+            ) % {
+                'count': len(beneficiary_ids),
+                'label': self.config['error_label'].lower(),
+                'target': project.target_beneficiaries,
+            }
+            raise ValueError(msg)
+
         if not project.allows_multiple_enrollments and to_enroll:
             already_enrolled_elsewhere = set(
                 enrollment_model.objects.filter(
