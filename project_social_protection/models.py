@@ -54,6 +54,10 @@ class Project(core_models.HistoryBusinessModel):
     # --- Malawi (sprint) fields. All nullable so pre-existing rows stay valid. ---
     # District / Traditional Authority are NOT stored: they are derived from `location`
     # by walking the parent chain (District=type R, TA=type D).
+    micro_catchment = models.ForeignKey(
+        'location.MicroCatchment', models.DO_NOTHING, null=True, blank=True,
+        related_name='projects',
+    )
     hotspot = models.ForeignKey(
         'location.Hotspot', models.DO_NOTHING, null=True, blank=True,
         related_name='projects',

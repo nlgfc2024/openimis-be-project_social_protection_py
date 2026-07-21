@@ -1,7 +1,7 @@
 import graphene as graphene
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError, PermissionDenied
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.utils.translation import gettext as _
 
 from core.gql.gql_mutations.base_mutation import (
@@ -10,7 +10,7 @@ from core.gql.gql_mutations.base_mutation import (
 )
 from core.schema import OpenIMISMutation
 from core.models import User
-from location.models import Location, Hotspot
+from location.models import Location, Hotspot, MicroCatchment
 from social_protection.models import BenefitPlan, Beneficiary, GroupBeneficiary
 
 from project_social_protection.apps import ProjectSocialProtectionConfig
@@ -27,17 +27,30 @@ _MUTATION_MODULE = "project_social_protection"
 
 def _resolve_malawi_fields(data):
     """Resolve the Malawi (sprint) FK inputs on a project mutation payload in place:
-    hotspot_id -> Hotspot, foreman_id / supervisor_id -> core.User. `known_place` is a
-    plain string and passes through untouched."""
+    micro_catchment_id -> MicroCatchment, hotspot_id -> Hotspot, foreman_id /
+    supervisor_id -> core.User. `known_place` is a plain string and passes through
+    untouched."""
+    if 'micro_catchment_id' in data:
+        micro_catchment_id = data.pop('micro_catchment_id')
+        data['micro_catchment'] = MicroCatchment.objects.filter(id=micro_catchment_id).first() if micro_catchment_id else None
     if 'hotspot_id' in data:
         hotspot_id = data.pop('hotspot_id')
-        data['hotspot'] = Hotspot.objects.get(id=hotspot_id) if hotspot_id else None
+        hotspot = Hotspot.objects.filter(id=hotspot_id).first() if hotspot_id else None
+        if hotspot_id and hotspot is None:
+            raise ValidationError(_("Hotspot %(id)s does not exist.") % {'id': hotspot_id})
+        data['hotspot'] = hotspot
     if 'foreman_id' in data:
         foreman_id = data.pop('foreman_id')
-        data['foreman'] = User.objects.get(id=foreman_id) if foreman_id else None
+        foreman = User.objects.filter(id=foreman_id).first() if foreman_id else None
+        if foreman_id and foreman is None:
+            raise ValidationError(_("Foreman %(id)s does not exist.") % {'id': foreman_id})
+        data['foreman'] = foreman
     if 'supervisor_id' in data:
         supervisor_id = data.pop('supervisor_id')
-        data['supervisor'] = User.objects.get(id=supervisor_id) if supervisor_id else None
+        supervisor = User.objects.filter(id=supervisor_id).first() if supervisor_id else None
+        if supervisor_id and supervisor is None:
+            raise ValidationError(_("Supervisor %(id)s does not exist.") % {'id': supervisor_id})
+        data['supervisor'] = supervisor
 
 
 def generate_project_name(hotspot, activity, benefit_plan, known_place):
@@ -49,7 +62,7 @@ def generate_project_name(hotspot, activity, benefit_plan, known_place):
     concurrent-create race (the loser gets an IntegrityError / validation error and can
     retry)."""
     seq = Project.objects.filter(
-        hotspot=hotspot, activity=activity, benefit_plan=benefit_plan,
+        hotspot=hotspot, activity=activity,
     ).count() + 1
     parts = [p for p in (
         getattr(hotspot, 'name', None),
@@ -74,6 +87,7 @@ class CreateProjectInputType(OpenIMISMutation.Input):
     working_days = graphene.Int(required=True)
     allows_multiple_enrollments = graphene.Boolean(required=False)
     # Malawi (sprint) fields
+    micro_catchment_id = graphene.ID(required=False)
     hotspot_id = graphene.ID(required=False)
     known_place = graphene.String(required=False)
     foreman_id = graphene.ID(required=False)
@@ -117,7 +131,14 @@ class CreateProjectMutation(
         )
 
         service = ProjectService(user)
-        res = service.create(data)
+        try:
+            res = service.create(data)
+        except IntegrityError:
+            return {
+                "success": False,
+                "message": _("A project with this name already exists for the selected program."),
+                "details": "",
+            }
 
         if client_mutation_id and res['success']:
             project = Project.objects.get(id=res['data']['id'])
@@ -142,6 +163,7 @@ class UpdateProjectInputType(OpenIMISMutation.Input):
     working_days = graphene.Int(required=False)
     allows_multiple_enrollments = graphene.Boolean(required=False)
     # Malawi (sprint) fields
+    micro_catchment_id = graphene.ID(required=False)
     hotspot_id = graphene.ID(required=False)
     known_place = graphene.String(required=False)
     foreman_id = graphene.ID(required=False)

@@ -8,6 +8,7 @@ from project_social_protection.tests.test_helpers import (
     find_or_create_benefit_plan,
 )
 from project_social_protection.models import Project, ProjectMutation
+from project_social_protection.gql_mutations import generate_project_name
 from location.test_helpers import create_test_village
 import uuid
 
@@ -168,11 +169,11 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
         }
         """
 
-        project_name = "New Village Sanitation Project"
+        project_name = generate_project_name(None, self.activity, self.benefit_plan, None)
         variables = {
             "input": {
                 "benefitPlanId": str(self.benefit_plan.id),
-                "name": project_name,
+                "name": "New Village Sanitation Project",
                 "activityId": str(self.activity.id),
                 "locationId": str(self.location.uuid),
                 "targetBeneficiaries": 200,
@@ -236,6 +237,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
 
         names_returned = [edge['node']['name'] for edge in data['edges']]
         self.assertIn(project_name, names_returned)
+        self.assertRegex(project_name, r'.*-Phase #\d+$')
 
     def test_create_project_mutation_requires_authentication(self):
         mutation = """
