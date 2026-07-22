@@ -35,10 +35,11 @@ from project_social_protection.gql_queries import (
     ProjectEligibleGroupBeneficiaryFilter,
 )
 from project_social_protection.models import Activity, Project
+from project_social_protection.export_mixin import ExportableProjectQueryMixin
 from project_social_protection.validation import validate_project_unique_name
 
 
-class Query(graphene.ObjectType):
+class Query(ExportableProjectQueryMixin, graphene.ObjectType):
     activity = OrderedDjangoFilterConnectionField(
         ActivityGQLType,
         orderBy=graphene.List(of_type=graphene.String),

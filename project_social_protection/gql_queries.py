@@ -114,6 +114,8 @@ class ProjectFilter(django_filters.FilterSet):
             "date_updated": ["exact", "lt", "lte", "gt", "gte"],
             "is_deleted": ["exact"],
             "version": ["exact"],
+            "micro_catchment__id": ["exact"],
+            "hotspot__id": ["exact"],
         }
 
 
