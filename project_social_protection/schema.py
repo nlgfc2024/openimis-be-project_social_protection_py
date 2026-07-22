@@ -40,13 +40,6 @@ from project_social_protection.validation import validate_project_unique_name
 
 
 class Query(ExportableProjectQueryMixin, graphene.ObjectType):
-    export_patches = {
-        **ExportableProjectQueryMixin.export_patches,
-        'project': {
-            'field_name': 'name',
-        },
-    }
-    exportable_fields = ExportableProjectQueryMixin.exportable_fields
     activity = OrderedDjangoFilterConnectionField(
         ActivityGQLType,
         orderBy=graphene.List(of_type=graphene.String),
