@@ -5,8 +5,7 @@ class ExportableProjectQueryMixin(ExportableQueryMixin):
     module_name = 'project_social_protection'
     object_type = 'Project'
     related_field = 'benefit_plan'
-    exportable_fields = ['project', 'project_history']
+    exportable_fields = ['project']
     export_patches = {
         'project': [],
-        'project_history': [],
     }
