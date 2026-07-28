@@ -15,7 +15,7 @@ from social_protection.models import BenefitPlan, Beneficiary, GroupBeneficiary
 
 from project_social_protection.apps import ProjectSocialProtectionConfig
 from project_social_protection.models import (
-    Project, ProjectMutation, Activity,
+    Project, ProjectMutation, Activity, ProjectStatus,
     BeneficiaryProjectTimeEntry, GroupBeneficiaryProjectTimeEntry,
 )
 from project_social_protection.services import (
@@ -54,20 +54,11 @@ def _resolve_malawi_fields(data):
 
 
 def generate_project_name(hotspot, activity, benefit_plan, known_place):
-    """Malawi project name: "Hotspot-Sector-Phase #<n> - Known place".
-    Sector = Activity name, Phase = literal "Phase", <n> is a per-(hotspot, sector, phase)
-    sequence so re-running for the same trio yields Project1, Project2, ... The count
-    includes soft-deleted rows so a number is never reused after a delete; the live-rows
-    unique constraint on (name, benefit_plan) is the real backstop against a
-    concurrent-create race (the loser gets an IntegrityError / validation error and can
-    retry)."""
-    seq = Project.objects.filter(
-        hotspot=hotspot, activity=activity,
-    ).count() + 1
+    """Return ``Hotspot-Activity-Program - Known place``."""
     parts = [p for p in (
         getattr(hotspot, 'name', None),
         getattr(activity, 'name', None),
-        f"Phase #{seq}",
+        getattr(benefit_plan, 'name', None),
     ) if p]
     name = '-'.join(parts)
     if known_place:
@@ -120,9 +111,9 @@ class CreateProjectMutation(
         )
         data["activity"] = Activity.objects.get(id=data.pop("activity_id"))
         data["location"] = Location.objects.get(uuid=data.pop("location_id"))
-        data.setdefault(
-            "status", Project._meta.get_field("status").get_default()
-        )
+        # Creation always starts in preparation, regardless of a client-provided
+        # status. Progression is allowed only after the project exists.
+        data["status"] = ProjectStatus.PREPARATION
         _resolve_malawi_fields(data)
         # Name is derived, not client-supplied.
         data["name"] = generate_project_name(
@@ -193,6 +184,13 @@ class UpdateProjectMutation(
         # Name is MIS-derived; never let a client overwrite it on update.
         data.pop("name", None)
 
+        name_driving_fields = {
+            "benefit_plan_id", "activity_id", "hotspot_id", "known_place",
+        }
+        rebuild_name = bool(name_driving_fields.intersection(data))
+
+        project = Project.objects.get(id=data["id"])
+
         if 'benefit_plan_id' in data:
             data["benefit_plan"] = BenefitPlan.objects.get(
                 id=data.pop("benefit_plan_id")
@@ -203,8 +201,16 @@ class UpdateProjectMutation(
             data["location"] = Location.objects.get(
                 uuid=data.pop("location_id")
             )
-        # Editable Malawi fields; the auto-generated name is left intact on update.
+        # Rebuild the generated name when any name-driving field changes.  Values that
+        # are not in the patch continue to come from the stored project.
         _resolve_malawi_fields(data)
+        if rebuild_name:
+            data["name"] = generate_project_name(
+                data.get("hotspot", project.hotspot),
+                data.get("activity", project.activity),
+                data.get("benefit_plan", project.benefit_plan),
+                data.get("known_place", project.known_place),
+            )
 
         service = ProjectService(user)
         res = service.update(data)

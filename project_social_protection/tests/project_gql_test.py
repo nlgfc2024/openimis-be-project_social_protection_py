@@ -178,6 +178,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
                 "locationId": str(self.location.uuid),
                 "targetBeneficiaries": 200,
                 "workingDays": 90,
+                "status": "INITIATED",
                 "allowsMultipleEnrollments": True,
                 "clientMutationId": "abc123"
             }
@@ -204,6 +205,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
             allows_multiple_enrollments=True,
         )
         self.assertTrue(project_qs.exists())
+        self.assertEqual(project_qs.first().status, "PREPARATION")
 
         # Verify project mutation is created in DB
         project_mutation_exists = ProjectMutation.objects.filter(
@@ -237,7 +239,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
 
         names_returned = [edge['node']['name'] for edge in data['edges']]
         self.assertIn(project_name, names_returned)
-        self.assertRegex(project_name, r'.*-Phase #\d+$')
+        self.assertRegex(project_name, r'.*-TESTPLAN-.+$')
 
     def test_create_project_mutation_requires_authentication(self):
         mutation = """
@@ -296,6 +298,12 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
         }
         """
 
+        expected_name = generate_project_name(
+            self.project_1.hotspot,
+            self.another_activity,
+            self.benefit_plan,
+            self.project_1.known_place,
+        )
         variables = {
             "input": {
                 "id": str(self.project_1.id),
@@ -321,7 +329,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
 
         # Verify project is updated in DB
         updated_project = Project.objects.get(id=self.project_1.id)
-        self.assertEqual(updated_project.name, "Updated Village Health Project A")
+        self.assertEqual(updated_project.name, expected_name)
         self.assertEqual(updated_project.target_beneficiaries, 120)
         self.assertEqual(updated_project.working_days, 130)
         self.assertEqual(updated_project.activity.id, self.another_activity.id)
