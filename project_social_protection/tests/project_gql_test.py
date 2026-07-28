@@ -178,7 +178,6 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
                 "locationId": str(self.location.uuid),
                 "targetBeneficiaries": 200,
                 "workingDays": 90,
-                "status": "INITIATED",
                 "allowsMultipleEnrollments": True,
                 "clientMutationId": "abc123"
             }
@@ -239,7 +238,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
 
         names_returned = [edge['node']['name'] for edge in data['edges']]
         self.assertIn(project_name, names_returned)
-        self.assertRegex(project_name, r'.*-TESTPLAN-Phase #\d+$')
+        self.assertRegex(project_name, r'.*-TESTPLAN$')
 
     def test_create_project_mutation_requires_authentication(self):
         mutation = """
@@ -335,6 +334,45 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
         self.assertEqual(updated_project.activity.id, self.another_activity.id)
         self.assertEqual(updated_project.location.id, self.another_location.id)
         self.assertEqual(updated_project.allows_multiple_enrollments, False)
+
+    def test_update_project_mutation_regenerates_name_when_known_place_is_cleared(self):
+        self.project_2.known_place = "Community Hall"
+        self.project_2.name = generate_project_name(
+            self.project_2.hotspot,
+            self.project_2.activity,
+            self.project_2.benefit_plan,
+            self.project_2.known_place,
+        )
+        self.project_2.save(username=self.user.username)
+
+        response = self.query(
+            """
+            mutation UpdateProject($input: UpdateProjectMutationInput!) {
+              updateProject(input: $input) { internalId }
+            }
+            """,
+            variables={"input": {
+                "id": str(self.project_2.id),
+                "knownPlace": "",
+            }},
+            headers={"HTTP_AUTHORIZATION": f"Bearer {self.user_token}"},
+        )
+
+        self.assertResponseNoErrors(response)
+        data = json.loads(response.content)['data']['updateProject']
+        self.assert_mutation_success(data['internalId'], self.user_token)
+
+        updated_project = Project.objects.get(id=self.project_2.id)
+        self.assertEqual(updated_project.known_place, "")
+        self.assertEqual(
+            updated_project.name,
+            generate_project_name(
+                updated_project.hotspot,
+                updated_project.activity,
+                updated_project.benefit_plan,
+                "",
+            ),
+        )
 
     def test_update_project_mutation_requires_authentication(self):
         mutation = """

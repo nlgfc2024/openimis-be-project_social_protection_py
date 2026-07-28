@@ -1,8 +1,8 @@
-from social_protection.export_mixin import ExportableSocialProtectionQueryMixin
+from core.gql.export_mixin import ExportableQueryMixin
 
 
-class ExportableProjectQueryMixin(ExportableSocialProtectionQueryMixin):
+class ExportableProjectQueryMixin(ExportableQueryMixin):
     module_name = 'project_social_protection'
     object_type = 'Project'
     related_field = 'benefit_plan'
-    exportable_fields = ['project']
+    exportable_fields = ['project', 'project_history']
