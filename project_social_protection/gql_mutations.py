@@ -54,11 +54,17 @@ def _resolve_malawi_fields(data):
 
 
 def generate_project_name(hotspot, activity, benefit_plan, known_place):
-    """Return ``Hotspot-Activity-Program - Known place``."""
+    """Return ``Hotspot-Activity-Program-Phase #n - Known place``."""
+    sequence = Project.objects.filter(
+        hotspot=hotspot,
+        activity=activity,
+        benefit_plan=benefit_plan,
+    ).count() + 1
     parts = [p for p in (
         getattr(hotspot, 'name', None),
         getattr(activity, 'name', None),
         getattr(benefit_plan, 'name', None),
+        f"Phase #{sequence}",
     ) if p]
     name = '-'.join(parts)
     if known_place:

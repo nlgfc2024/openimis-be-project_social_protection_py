@@ -239,7 +239,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
 
         names_returned = [edge['node']['name'] for edge in data['edges']]
         self.assertIn(project_name, names_returned)
-        self.assertRegex(project_name, r'.*-TESTPLAN-.+$')
+        self.assertRegex(project_name, r'.*-TESTPLAN-Phase #\d+$')
 
     def test_create_project_mutation_requires_authentication(self):
         mutation = """
