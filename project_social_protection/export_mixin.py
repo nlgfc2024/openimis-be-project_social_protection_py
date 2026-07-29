@@ -6,3 +6,6 @@ class ExportableProjectQueryMixin(ExportableQueryMixin):
     object_type = 'Project'
     related_field = 'benefit_plan'
     exportable_fields = ['project', 'project_history']
+    export_patches = {
+        'project': [],
+    }
