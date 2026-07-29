@@ -204,6 +204,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
             allows_multiple_enrollments=True,
         )
         self.assertTrue(project_qs.exists())
+        self.assertEqual(project_qs.first().status, "PREPARATION")
 
         # Verify project mutation is created in DB
         project_mutation_exists = ProjectMutation.objects.filter(
@@ -237,7 +238,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
 
         names_returned = [edge['node']['name'] for edge in data['edges']]
         self.assertIn(project_name, names_returned)
-        self.assertRegex(project_name, r'.*-Phase #\d+$')
+        self.assertRegex(project_name, r'.*-TESTPLAN$')
 
     def test_create_project_mutation_requires_authentication(self):
         mutation = """
@@ -296,6 +297,12 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
         }
         """
 
+        expected_name = generate_project_name(
+            self.project_1.hotspot,
+            self.another_activity,
+            self.benefit_plan,
+            self.project_1.known_place,
+        )
         variables = {
             "input": {
                 "id": str(self.project_1.id),
@@ -321,12 +328,51 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
 
         # Verify project is updated in DB
         updated_project = Project.objects.get(id=self.project_1.id)
-        self.assertEqual(updated_project.name, "Updated Village Health Project A")
+        self.assertEqual(updated_project.name, expected_name)
         self.assertEqual(updated_project.target_beneficiaries, 120)
         self.assertEqual(updated_project.working_days, 130)
         self.assertEqual(updated_project.activity.id, self.another_activity.id)
         self.assertEqual(updated_project.location.id, self.another_location.id)
         self.assertEqual(updated_project.allows_multiple_enrollments, False)
+
+    def test_update_project_mutation_regenerates_name_when_known_place_is_cleared(self):
+        self.project_2.known_place = "Community Hall"
+        self.project_2.name = generate_project_name(
+            self.project_2.hotspot,
+            self.project_2.activity,
+            self.project_2.benefit_plan,
+            self.project_2.known_place,
+        )
+        self.project_2.save(username=self.user.username)
+
+        response = self.query(
+            """
+            mutation UpdateProject($input: UpdateProjectMutationInput!) {
+              updateProject(input: $input) { internalId }
+            }
+            """,
+            variables={"input": {
+                "id": str(self.project_2.id),
+                "knownPlace": "",
+            }},
+            headers={"HTTP_AUTHORIZATION": f"Bearer {self.user_token}"},
+        )
+
+        self.assertResponseNoErrors(response)
+        data = json.loads(response.content)['data']['updateProject']
+        self.assert_mutation_success(data['internalId'], self.user_token)
+
+        updated_project = Project.objects.get(id=self.project_2.id)
+        self.assertEqual(updated_project.known_place, "")
+        self.assertEqual(
+            updated_project.name,
+            generate_project_name(
+                updated_project.hotspot,
+                updated_project.activity,
+                updated_project.benefit_plan,
+                "",
+            ),
+        )
 
     def test_update_project_mutation_requires_authentication(self):
         mutation = """
