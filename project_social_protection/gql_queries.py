@@ -121,6 +121,14 @@ class ProjectFilter(django_filters.FilterSet):
 
 class ProjectGQLType(DjangoObjectType):
     uuid = graphene.String(source='uuid')
+    assigned_beneficiaries_count = graphene.Int()
+
+    def resolve_assigned_beneficiaries_count(self, info):
+        # Keep count aligned with visible assignments by excluding deleted rows.
+        return (
+            self.beneficiary_enrollments.filter(is_deleted=False).count()
+            + self.group_beneficiary_enrollments.filter(is_deleted=False).count()
+        )
 
     class Meta:
         model = Project

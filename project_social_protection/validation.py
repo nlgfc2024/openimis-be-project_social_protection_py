@@ -4,6 +4,8 @@ from django.utils.translation import gettext as _
 from core.validation import BaseModelValidation, ObjectExistsValidationMixin
 from project_social_protection.models import Project
 
+MAX_TARGET_BENEFICIARIES = 200
+
 
 def validate_project_unique_name(name, benefit_plan_id, uuid=None):
     if not name or not benefit_plan_id:
@@ -21,12 +23,23 @@ def validate_project_unique_name(name, benefit_plan_id, uuid=None):
 class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
     OBJECT_TYPE = Project
 
+    @staticmethod
+    def _validate_target_beneficiaries(target_beneficiaries):
+        if target_beneficiaries is None:
+            return []
+        if target_beneficiaries > MAX_TARGET_BENEFICIARIES:
+            return [{"message": _(
+                "Target beneficiaries cannot exceed %(max)s."
+            ) % {'max': MAX_TARGET_BENEFICIARIES}}]
+        return []
+
     @classmethod
     def validate_create(cls, user, **data):
         bp = data.get('benefit_plan')
         errors = validate_project_unique_name(
             data.get('name'), bp.id if bp else data.get('benefit_plan_id')
         )
+        errors.extend(cls._validate_target_beneficiaries(data.get('target_beneficiaries')))
         if errors:
             raise ValidationError(errors)
 
@@ -39,6 +52,7 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
             bp.id if bp else data.get('benefit_plan_id'),
             data.get('id'),
         )
+        errors.extend(cls._validate_target_beneficiaries(data.get('target_beneficiaries')))
         if errors:
             raise ValidationError(errors)
 
