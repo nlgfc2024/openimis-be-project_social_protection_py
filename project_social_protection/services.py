@@ -143,14 +143,29 @@ class ProjectEnrollmentService:
         # clean() is skipped under bulk_save; enforce ACTIVE + same-program here.
         self._validate_enrollable(project, to_enroll)
 
-        if len(beneficiary_ids) > project.target_beneficiaries and \
-            len(beneficiary_ids) > len(currently_enrolled):
+        active_individual_count = BeneficiaryProjectEnrollment.objects.filter(
+            project_id=project_id,
+            is_deleted=False,
+        ).count()
+        active_group_count = GroupBeneficiaryProjectEnrollment.objects.filter(
+            project_id=project_id,
+            is_deleted=False,
+        ).count()
+
+        # Compute total assigned count after applying this mutation's delta.
+        # This keeps server-side cap enforcement independent from client behavior.
+        total_assigned_before_change = active_individual_count + active_group_count
+        current_type_delta = len(to_enroll) - len(to_unenroll)
+        total_assigned_after_change = (
+            total_assigned_before_change + current_type_delta
+        )
+
+        if total_assigned_after_change > project.target_beneficiaries:
             msg = _(
-                "This change would bring the project to %(count)s enrolled "
-                "%(label)s, exceeding the target of %(target)s."
+                "This change would bring the project to %(count)s assigned "
+                "beneficiaries, exceeding the target of %(target)s."
             ) % {
-                'count': len(beneficiary_ids),
-                'label': self.config['error_label'].lower(),
+                'count': total_assigned_after_change,
                 'target': project.target_beneficiaries,
             }
             raise ValueError(msg)

@@ -129,7 +129,9 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
             descendant_ids = extend_allowed_locations([location.pk])
             filters.append(Q(location__id__in=descendant_ids))
 
-        query = Project.objects.filter(*filters)
+        query = ProjectGQLType.with_assigned_beneficiaries_count(
+            Project.objects.filter(*filters)
+        )
         return gql_optimizer.query(query, info)
 
     def resolve_project_name_validity(self, info, **kwargs):

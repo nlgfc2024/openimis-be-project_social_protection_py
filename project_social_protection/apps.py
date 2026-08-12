@@ -19,6 +19,7 @@ DEFAULT_CONFIG = {
     "gql_project_delete_perms": ["209004"],
     "gql_project_beneficiary_enroll_perms": ["209005"],
     "gql_project_beneficiary_time_entry_perms": ["209006"],
+    "max_target_beneficiaries": 200,
 }
 
 
@@ -34,6 +35,7 @@ class ProjectSocialProtectionConfig(AppConfig):
     gql_project_delete_perms = None
     gql_project_beneficiary_enroll_perms = None
     gql_project_beneficiary_time_entry_perms = None
+    max_target_beneficiaries = None
 
     def ready(self):
         from core.models import ModuleConfiguration

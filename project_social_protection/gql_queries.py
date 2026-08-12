@@ -1,6 +1,7 @@
 import graphene
 import graphene_django_optimizer as gql_optimizer
 import django_filters
+from django.db.models import Count, Q
 from graphene_django import DjangoObjectType
 
 from core import ExtendedConnection
@@ -124,10 +125,30 @@ class ProjectGQLType(DjangoObjectType):
     assigned_beneficiaries_count = graphene.Int()
 
     def resolve_assigned_beneficiaries_count(self, info):
+        annotated_count = getattr(self, 'assigned_beneficiaries_count', None)
+        if annotated_count is not None:
+            return annotated_count
         # Keep count aligned with visible assignments by excluding deleted rows.
         return (
             self.beneficiary_enrollments.filter(is_deleted=False).count()
             + self.group_beneficiary_enrollments.filter(is_deleted=False).count()
+        )
+
+    @staticmethod
+    def with_assigned_beneficiaries_count(queryset):
+        return queryset.annotate(
+            assigned_beneficiaries_count=(
+                Count(
+                    'beneficiary_enrollments',
+                    filter=Q(beneficiary_enrollments__is_deleted=False),
+                    distinct=True,
+                )
+                + Count(
+                    'group_beneficiary_enrollments',
+                    filter=Q(group_beneficiary_enrollments__is_deleted=False),
+                    distinct=True,
+                )
+            )
         )
 
     class Meta:
