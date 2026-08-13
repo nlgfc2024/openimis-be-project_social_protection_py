@@ -160,7 +160,12 @@ class ProjectEnrollmentService:
             total_assigned_before_change + current_type_delta
         )
 
-        if total_assigned_after_change > project.target_beneficiaries:
+        # If a project is already over target, allow mutations that reduce
+        # assigned beneficiaries so users can recover back under the cap.
+        if (
+            total_assigned_after_change > project.target_beneficiaries
+            and total_assigned_after_change > total_assigned_before_change
+        ):
             msg = _(
                 "This change would bring the project to %(count)s assigned "
                 "beneficiaries, exceeding the target of %(target)s."

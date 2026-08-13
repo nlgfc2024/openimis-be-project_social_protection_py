@@ -2,10 +2,12 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import gettext as _
 
 from core.validation import BaseModelValidation, ObjectExistsValidationMixin
-from project_social_protection.apps import ProjectSocialProtectionConfig
+from project_social_protection.apps import (
+    DEFAULT_MAX_TARGET_BENEFICIARIES,
+    ProjectSocialProtectionConfig,
+)
 from project_social_protection.models import Project
 
-DEFAULT_MAX_TARGET_BENEFICIARIES = 200
 MIN_TARGET_BENEFICIARIES = 1
 
 
@@ -38,6 +40,12 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
     OBJECT_TYPE = Project
 
     @staticmethod
+    def _validate_required_target_beneficiaries(target_beneficiaries):
+        if target_beneficiaries is None:
+            return [{"message": _("Target beneficiaries is required.")}]
+        return []
+
+    @staticmethod
     def _validate_target_beneficiaries(target_beneficiaries):
         if target_beneficiaries is None:
             return []
@@ -60,6 +68,11 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
         bp = data.get('benefit_plan')
         errors = validate_project_unique_name(
             data.get('name'), bp.id if bp else data.get('benefit_plan_id')
+        )
+        errors.extend(
+            cls._validate_required_target_beneficiaries(
+                data.get('target_beneficiaries')
+            )
         )
         errors.extend(cls._validate_target_beneficiaries(data.get('target_beneficiaries')))
         if errors:

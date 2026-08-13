@@ -154,6 +154,35 @@ class ProjectEnrollmentTargetBeneficiariesTest(TestCase):
         )
         self.assertEqual(enrollments.count(), 2)
 
+    def test_unenroll_allowed_when_project_is_already_over_target(self):
+        project = self._make_project(target_beneficiaries=3)
+        service = ProjectEnrollmentService(
+            self.user, ProjectEnrollmentService.INDIVIDUAL
+        )
+
+        service.enroll_project({
+            'ids': self.beneficiary_uuids[:3],
+            'project_id': str(project.id),
+        })
+
+        # Simulate an admin lowering the target below current assigned count.
+        project.target_beneficiaries = 1
+        project.save(update_fields=['target_beneficiaries'])
+
+        # Keep one beneficiary assigned: this reduces total from 3 -> 1 and
+        # must succeed even though the project was temporarily over target.
+        service.enroll_project({
+            'ids': [self.beneficiary_uuids[0]],
+            'project_id': str(project.id),
+        })
+
+        enrollments = BeneficiaryProjectEnrollment.objects.filter(
+            project_id=project.id,
+            is_deleted=False,
+        )
+        self.assertEqual(enrollments.count(), 1)
+        self.assertEqual(str(enrollments.first().beneficiary_id), self.beneficiary_uuids[0])
+
 
 class ProjectGroupEnrollmentTargetBeneficiariesTest(TestCase):
     """Group enrollment counts enrolled rows, not member headcount."""
