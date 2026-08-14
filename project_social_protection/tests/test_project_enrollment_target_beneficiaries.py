@@ -169,10 +169,11 @@ class ProjectEnrollmentTargetBeneficiariesTest(TestCase):
         project.target_beneficiaries = 1
         project.save(update_fields=['target_beneficiaries'])
 
-        # Keep one beneficiary assigned: this reduces total from 3 -> 1 and
-        # must succeed even though the project was temporarily over target.
+        # Keep two beneficiaries assigned: this reduces total from 3 -> 2,
+        # which is still over target. This must succeed because it's a
+        # reducing change from an already-over-target state.
         service.enroll_project({
-            'ids': [self.beneficiary_uuids[0]],
+            'ids': [self.beneficiary_uuids[0], self.beneficiary_uuids[1]],
             'project_id': str(project.id),
         })
 
@@ -180,8 +181,12 @@ class ProjectEnrollmentTargetBeneficiariesTest(TestCase):
             project_id=project.id,
             is_deleted=False,
         )
-        self.assertEqual(enrollments.count(), 1)
-        self.assertEqual(str(enrollments.first().beneficiary_id), self.beneficiary_uuids[0])
+        self.assertEqual(enrollments.count(), 2)
+        enrolled_ids = {str(e.beneficiary_id) for e in enrollments}
+        self.assertEqual(
+            enrolled_ids,
+            {self.beneficiary_uuids[0], self.beneficiary_uuids[1]},
+        )
 
 
 class ProjectGroupEnrollmentTargetBeneficiariesTest(TestCase):

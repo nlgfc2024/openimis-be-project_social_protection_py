@@ -45,7 +45,9 @@ class ProjectTargetBeneficiariesValidationTest(SimpleTestCase):
         with self.assertRaises(ValidationError) as cm:
             ProjectValidation.validate_create(
                 user=None,
-                name='Validation project',
+                # Keep name falsy so unique-name validation short-circuits;
+                # this test targets the required-target validation only.
+                name=None,
                 benefit_plan_id='ignored-for-this-test',
                 target_beneficiaries=None,
             )
