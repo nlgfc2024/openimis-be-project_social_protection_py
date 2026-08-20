@@ -8,6 +8,7 @@ from core.module_config_registry import register_reloader
 logger = logging.getLogger(__name__)
 
 MODULE_NAME = "project_social_protection"
+DEFAULT_MAX_TARGET_BENEFICIARIES = 200
 
 # Project / Activity rights keep the SAME numeric codes they had under
 # social_protection so existing role grants continue to work.
@@ -19,6 +20,7 @@ DEFAULT_CONFIG = {
     "gql_project_delete_perms": ["209004"],
     "gql_project_beneficiary_enroll_perms": ["209005"],
     "gql_project_beneficiary_time_entry_perms": ["209006"],
+    "max_target_beneficiaries": DEFAULT_MAX_TARGET_BENEFICIARIES,
 }
 
 
@@ -34,6 +36,7 @@ class ProjectSocialProtectionConfig(AppConfig):
     gql_project_delete_perms = None
     gql_project_beneficiary_enroll_perms = None
     gql_project_beneficiary_time_entry_perms = None
+    max_target_beneficiaries = None
 
     def ready(self):
         from core.models import ModuleConfiguration

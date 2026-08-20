@@ -2,7 +2,25 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import gettext as _
 
 from core.validation import BaseModelValidation, ObjectExistsValidationMixin
+from project_social_protection.apps import (
+    DEFAULT_MAX_TARGET_BENEFICIARIES,
+    ProjectSocialProtectionConfig,
+)
 from project_social_protection.models import Project
+
+MIN_TARGET_BENEFICIARIES = 1
+
+
+def get_max_target_beneficiaries():
+    configured = getattr(
+        ProjectSocialProtectionConfig,
+        'max_target_beneficiaries',
+        DEFAULT_MAX_TARGET_BENEFICIARIES,
+    )
+    try:
+        return int(configured)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_TARGET_BENEFICIARIES
 
 
 def validate_project_unique_name(name, benefit_plan_id, uuid=None):
@@ -21,12 +39,42 @@ def validate_project_unique_name(name, benefit_plan_id, uuid=None):
 class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
     OBJECT_TYPE = Project
 
+    @staticmethod
+    def _validate_required_target_beneficiaries(target_beneficiaries):
+        if target_beneficiaries is None:
+            return [{"message": _("Target beneficiaries is required.")}]
+        return []
+
+    @staticmethod
+    def _validate_target_beneficiaries(target_beneficiaries):
+        if target_beneficiaries is None:
+            return []
+
+        max_target_beneficiaries = get_max_target_beneficiaries()
+
+        if target_beneficiaries < MIN_TARGET_BENEFICIARIES:
+            return [{"message": _(
+                "Target beneficiaries must be at least %(min)s."
+            ) % {'min': MIN_TARGET_BENEFICIARIES}}]
+
+        if target_beneficiaries > max_target_beneficiaries:
+            return [{"message": _(
+                "Target beneficiaries cannot exceed %(max)s."
+            ) % {'max': max_target_beneficiaries}}]
+        return []
+
     @classmethod
     def validate_create(cls, user, **data):
         bp = data.get('benefit_plan')
         errors = validate_project_unique_name(
             data.get('name'), bp.id if bp else data.get('benefit_plan_id')
         )
+        errors.extend(
+            cls._validate_required_target_beneficiaries(
+                data.get('target_beneficiaries')
+            )
+        )
+        errors.extend(cls._validate_target_beneficiaries(data.get('target_beneficiaries')))
         if errors:
             raise ValidationError(errors)
 
@@ -39,6 +87,7 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
             bp.id if bp else data.get('benefit_plan_id'),
             data.get('id'),
         )
+        errors.extend(cls._validate_target_beneficiaries(data.get('target_beneficiaries')))
         if errors:
             raise ValidationError(errors)
 

@@ -132,6 +132,62 @@ class ProjectEnrollmentTargetBeneficiariesTest(TestCase):
             {self.beneficiary_uuids[0], self.beneficiary_uuids[2]},
         )
 
+    def test_additional_enroll_over_existing_cap_raises(self):
+        project = self._make_project(target_beneficiaries=2)
+        service = ProjectEnrollmentService(
+            self.user, ProjectEnrollmentService.INDIVIDUAL
+        )
+        service.enroll_project({
+            'ids': self.beneficiary_uuids[:2],
+            'project_id': str(project.id),
+        })
+
+        with self.assertRaises(ValueError):
+            service.enroll_project({
+                'ids': self.beneficiary_uuids[:3],
+                'project_id': str(project.id),
+            })
+
+        enrollments = BeneficiaryProjectEnrollment.objects.filter(
+            project_id=project.id,
+            is_deleted=False,
+        )
+        self.assertEqual(enrollments.count(), 2)
+
+    def test_unenroll_allowed_when_project_is_already_over_target(self):
+        project = self._make_project(target_beneficiaries=3)
+        service = ProjectEnrollmentService(
+            self.user, ProjectEnrollmentService.INDIVIDUAL
+        )
+
+        service.enroll_project({
+            'ids': self.beneficiary_uuids[:3],
+            'project_id': str(project.id),
+        })
+
+        # Simulate an admin lowering the target below current assigned count.
+        project.target_beneficiaries = 1
+        project.save(update_fields=['target_beneficiaries'])
+
+        # Keep two beneficiaries assigned: this reduces total from 3 -> 2,
+        # which is still over target. This must succeed because it's a
+        # reducing change from an already-over-target state.
+        service.enroll_project({
+            'ids': [self.beneficiary_uuids[0], self.beneficiary_uuids[1]],
+            'project_id': str(project.id),
+        })
+
+        enrollments = BeneficiaryProjectEnrollment.objects.filter(
+            project_id=project.id,
+            is_deleted=False,
+        )
+        self.assertEqual(enrollments.count(), 2)
+        enrolled_ids = {str(e.beneficiary_id) for e in enrollments}
+        self.assertEqual(
+            enrolled_ids,
+            {self.beneficiary_uuids[0], self.beneficiary_uuids[1]},
+        )
+
 
 class ProjectGroupEnrollmentTargetBeneficiariesTest(TestCase):
     """Group enrollment counts enrolled rows, not member headcount."""
