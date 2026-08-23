@@ -1,4 +1,5 @@
 import json
+import re
 from core.models import User
 from core.models.openimis_graphql_test_case import BaseTestContext
 from core.test_helpers import create_test_interactive_user, create_test_role
@@ -9,11 +10,26 @@ from project_social_protection.tests.test_helpers import (
 )
 from project_social_protection.models import Project, ProjectMutation
 from project_social_protection.gql_mutations import generate_project_name
+from project_social_protection.apps import ProjectSocialProtectionConfig
 from location.test_helpers import create_test_village
 import uuid
 
 
 class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
+
+    @staticmethod
+    def _find_location_by_type(location, location_type):
+        current = location
+        while current is not None:
+            if getattr(current, 'type', None) == location_type:
+                return current
+            current = getattr(current, 'parent', None)
+        return None
+
+    @staticmethod
+    def _normalize_numeric_code(code_value, digits):
+        numeric = ''.join(ch for ch in str(code_value or '') if ch.isdigit())
+        return (numeric[-digits:] if numeric else '').zfill(digits)
 
     @classmethod
     def setUpTestData(cls):
@@ -204,7 +220,24 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
             allows_multiple_enrollments=True,
         )
         self.assertTrue(project_qs.exists())
-        self.assertEqual(project_qs.first().status, "PREPARATION")
+        created_project = project_qs.first()
+        self.assertEqual(created_project.status, "PREPARATION")
+
+        district_digits = int(ProjectSocialProtectionConfig.project_code_district_digits)
+        ta_digits = int(ProjectSocialProtectionConfig.project_code_ta_digits)
+        sequence_digits = int(ProjectSocialProtectionConfig.project_code_sequence_digits)
+        total_digits = district_digits + ta_digits + sequence_digits
+
+        district = self._find_location_by_type(created_project.location, 'R')
+        ta = self._find_location_by_type(created_project.location, 'D')
+        expected_prefix = (
+          self._normalize_numeric_code(getattr(district, 'code', None), district_digits)
+          + self._normalize_numeric_code(getattr(ta, 'code', None), ta_digits)
+        )
+
+        self.assertTrue(created_project.code)
+        self.assertRegex(created_project.code, rf'^\d{{{total_digits}}}$')
+        self.assertTrue(created_project.code.startswith(expected_prefix))
 
         # Verify project mutation is created in DB
         project_mutation_exists = ProjectMutation.objects.filter(
@@ -222,6 +255,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
                 edges {{
                   node {{
                     id
+                    code
                     name
                     status
                   }}
@@ -237,7 +271,9 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
         self.assertEqual(data['totalCount'], 1)
 
         names_returned = [edge['node']['name'] for edge in data['edges']]
+        codes_returned = [edge['node']['code'] for edge in data['edges']]
         self.assertIn(project_name, names_returned)
+        self.assertRegex(codes_returned[0], r'^\d+$')
         self.assertRegex(project_name, r'.*-TESTPLAN$')
 
     def test_create_project_mutation_requires_authentication(self):

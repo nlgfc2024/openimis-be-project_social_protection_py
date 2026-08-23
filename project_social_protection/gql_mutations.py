@@ -1,4 +1,5 @@
 import graphene as graphene
+import re
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.db import transaction, IntegrityError
@@ -23,6 +24,50 @@ from project_social_protection.services import (
 )
 
 _MUTATION_MODULE = "project_social_protection"
+
+
+def _find_location_by_type(location, location_type):
+    current = location
+    while current is not None:
+        if getattr(current, "type", None) == location_type:
+            return current
+        current = getattr(current, "parent", None)
+    return None
+
+
+def _normalize_numeric_code(code_value, digits):
+    numeric = ''.join(ch for ch in str(code_value or '') if ch.isdigit())
+    return (numeric[-digits:] if numeric else '').zfill(digits)
+
+
+def generate_project_code(location):
+    district_digits = int(ProjectSocialProtectionConfig.project_code_district_digits)
+    ta_digits = int(ProjectSocialProtectionConfig.project_code_ta_digits)
+    sequence_digits = int(ProjectSocialProtectionConfig.project_code_sequence_digits)
+
+    district = _find_location_by_type(location, 'R')
+    ta = _find_location_by_type(location, 'D')
+
+    district_code = _normalize_numeric_code(getattr(district, 'code', None), district_digits)
+    ta_code = _normalize_numeric_code(getattr(ta, 'code', None), ta_digits)
+    prefix = f"{district_code}{ta_code}"
+    pattern = re.compile(rf"^{prefix}(\d{{{sequence_digits}}})$")
+
+    max_seq = 0
+    existing_codes = Project.objects.filter(
+        code__startswith=prefix,
+    ).values_list('code', flat=True)
+    for code in existing_codes:
+        match = pattern.match(code or '')
+        if not match:
+            continue
+        max_seq = max(max_seq, int(match.group(1)))
+
+    if max_seq >= (10 ** sequence_digits) - 1:
+        return None
+
+    next_seq = str(max_seq + 1).zfill(sequence_digits)
+    return f"{prefix}{next_seq}"
 
 
 def _resolve_malawi_fields(data):
@@ -97,6 +142,7 @@ class CreateProjectMutation(
 
     @classmethod
     def _mutate(cls, user, **data):
+        client_mutation_id = None
         if "client_mutation_id" in data:
             client_mutation_id = data.pop('client_mutation_id', None)
         if "client_mutation_label" in data:
@@ -118,14 +164,45 @@ class CreateProjectMutation(
         )
 
         service = ProjectService(user)
-        try:
-            res = service.create(data)
-        except IntegrityError:
-            return {
-                "success": False,
-                "message": _("A project with this name already exists for the selected program."),
-                "details": "",
-            }
+        if ProjectSocialProtectionConfig.project_code_enabled:
+            max_retries = 5
+            for _ in range(max_retries):
+                code = generate_project_code(data["location"])
+                if code is None:
+                    return {
+                        "success": False,
+                        "message": _("Project code sequence limit reached for this location."),
+                        "details": "",
+                    }
+                data["code"] = code
+                try:
+                    res = service.create(data)
+                    break
+                except IntegrityError as exc:
+                    if 'uniq_live_project_code' in str(exc):
+                        continue
+                    if 'uniq_live_project_name_per_plan' in str(exc):
+                        return {
+                            "success": False,
+                            "message": _("A project with this name already exists for the selected program."),
+                            "details": "",
+                        }
+                    raise
+            else:
+                return {
+                    "success": False,
+                    "message": _("Failed to generate a unique project code. Please retry."),
+                    "details": "",
+                }
+        else:
+            try:
+                res = service.create(data)
+            except IntegrityError:
+                return {
+                    "success": False,
+                    "message": _("A project with this name already exists for the selected program."),
+                    "details": "",
+                }
 
         if client_mutation_id and res['success']:
             project = Project.objects.get(id=res['data']['id'])

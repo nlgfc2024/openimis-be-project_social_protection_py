@@ -103,6 +103,8 @@ class ProjectFilter(django_filters.FilterSet):
         model = Project
         fields = {
             "id": ["exact"],
+            "code": ["exact", "iexact", "startswith", "istartswith",
+                     "contains", "icontains"],
             "name": ["exact", "iexact", "startswith", "istartswith",
                      "contains", "icontains"],
             'status': ['exact', 'icontains'],
@@ -169,6 +171,8 @@ class ProjectHistoryGQLType(DjangoObjectType):
         interfaces = (graphene.relay.Node,)
         filter_fields = {
             "id": ["exact"],
+            "code": ["exact", "iexact", "startswith", "istartswith",
+                     "contains", "icontains"],
             "name": ["exact", "iexact", "startswith", "istartswith",
                      "contains", "icontains"],
             'status': ['exact', 'icontains'],

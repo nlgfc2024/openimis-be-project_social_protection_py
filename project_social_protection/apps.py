@@ -21,6 +21,10 @@ DEFAULT_CONFIG = {
     "gql_project_beneficiary_enroll_perms": ["209005"],
     "gql_project_beneficiary_time_entry_perms": ["209006"],
     "max_target_beneficiaries": DEFAULT_MAX_TARGET_BENEFICIARIES,
+    "project_code_enabled": True,
+    "project_code_district_digits": 3,
+    "project_code_ta_digits": 5,
+    "project_code_sequence_digits": 4,
 }
 
 
@@ -37,6 +41,10 @@ class ProjectSocialProtectionConfig(AppConfig):
     gql_project_beneficiary_enroll_perms = None
     gql_project_beneficiary_time_entry_perms = None
     max_target_beneficiaries = None
+    project_code_enabled = None
+    project_code_district_digits = None
+    project_code_ta_digits = None
+    project_code_sequence_digits = None
 
     def ready(self):
         from core.models import ModuleConfiguration
