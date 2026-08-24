@@ -39,6 +39,7 @@ class ProjectStatus(models.TextChoices):
 class Project(core_models.HistoryBusinessModel):
     benefit_plan = models.ForeignKey('social_protection.BenefitPlan', models.DO_NOTHING, null=False)
     name = models.CharField(max_length=255, null=False)
+    code = models.CharField(max_length=32, null=True, blank=True)
     status = models.CharField(
         max_length=100,
         choices=ProjectStatus.choices,
@@ -81,6 +82,13 @@ class Project(core_models.HistoryBusinessModel):
                 fields=['name', 'benefit_plan'],
                 condition=models.Q(is_deleted=False),
                 name='uniq_live_project_name_per_plan',
+            ),
+            # Codes are permanent MIS-generated identifiers. They are globally unique
+            # and deliberately never reused after soft deletion, so exports, paper
+            # forms, and undo-delete operations always refer to one project.
+            models.UniqueConstraint(
+                fields=['code'],
+                name='uniq_project_code',
             ),
         ]
 
