@@ -1,5 +1,6 @@
 import json
 import re
+from unittest.mock import patch
 from core.models import User
 from core.models.openimis_graphql_test_case import BaseTestContext
 from core.test_helpers import create_test_interactive_user, create_test_role
@@ -9,7 +10,10 @@ from project_social_protection.tests.test_helpers import (
     find_or_create_benefit_plan,
 )
 from project_social_protection.models import Project, ProjectMutation
-from project_social_protection.gql_mutations import generate_project_name
+from project_social_protection.gql_mutations import (
+    CreateProjectMutation,
+    generate_project_name,
+)
 from project_social_protection.apps import ProjectSocialProtectionConfig
 from location.test_helpers import create_test_village
 import uuid
@@ -275,6 +279,40 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
         self.assertIn(project_name, names_returned)
         self.assertRegex(codes_returned[0], r'^\d+$')
         self.assertRegex(project_name, r'.*-TESTPLAN$')
+
+    def test_create_project_mutation_retries_project_code_collision(self):
+        attempts = []
+
+        def create_with_collision(payload):
+            attempts.append(payload['code'])
+            if len(attempts) == 1:
+                return {
+                    'success': False,
+                    'message': 'Failed to create Project',
+                    'detail': 'duplicate key violates unique constraint "uniq_live_project_code"',
+                    'data': '',
+                }
+            return {'success': True, 'message': 'Ok', 'detail': '', 'data': {'id': 'unused'}}
+
+        with patch(
+            'project_social_protection.gql_mutations.generate_project_code',
+            side_effect=['102102010001', '102102010002'],
+        ), patch(
+            'project_social_protection.gql_mutations.ProjectService.create',
+            side_effect=create_with_collision,
+        ):
+            result = CreateProjectMutation._mutate(
+                self.user,
+                benefit_plan_id=self.benefit_plan.id,
+                activity_id=self.activity.id,
+                location_id=self.location.uuid,
+                target_beneficiaries=200,
+                working_days=90,
+                allows_multiple_enrollments=True,
+            )
+
+        self.assertIsNone(result)
+        self.assertEqual(attempts, ['102102010001', '102102010002'])
 
     def test_create_project_mutation_requires_authentication(self):
         mutation = """

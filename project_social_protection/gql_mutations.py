@@ -2,7 +2,7 @@ import graphene as graphene
 import re
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError, PermissionDenied
-from django.db import transaction, IntegrityError
+from django.db import transaction
 from django.utils.translation import gettext as _
 
 from core.gql.gql_mutations.base_mutation import (
@@ -47,6 +47,10 @@ def generate_project_code(location):
 
     district = _find_location_by_type(location, 'R')
     ta = _find_location_by_type(location, 'D')
+    if district is None or ta is None:
+        raise ValidationError(
+            _("A project location must belong to a District and Traditional Authority.")
+        )
 
     district_code = _normalize_numeric_code(getattr(district, 'code', None), district_digits)
     ta_code = _normalize_numeric_code(getattr(ta, 'code', None), ta_digits)
@@ -167,7 +171,14 @@ class CreateProjectMutation(
         if ProjectSocialProtectionConfig.project_code_enabled:
             max_retries = 5
             for _ in range(max_retries):
-                code = generate_project_code(data["location"])
+                try:
+                    code = generate_project_code(data["location"])
+                except ValidationError as exc:
+                    return {
+                        "success": False,
+                        "message": exc.messages[0],
+                        "details": "",
+                    }
                 if code is None:
                     return {
                         "success": False,
@@ -175,19 +186,20 @@ class CreateProjectMutation(
                         "details": "",
                     }
                 data["code"] = code
-                try:
-                    res = service.create(data)
+                res = service.create(data)
+                if res['success']:
                     break
-                except IntegrityError as exc:
-                    if 'uniq_live_project_code' in str(exc):
-                        continue
-                    if 'uniq_live_project_name_per_plan' in str(exc):
-                        return {
-                            "success": False,
-                            "message": _("A project with this name already exists for the selected program."),
-                            "details": "",
-                        }
-                    raise
+
+                detail = str(res.get('detail', ''))
+                if 'uniq_live_project_code' in detail:
+                    continue
+                if 'uniq_live_project_name_per_plan' in detail:
+                    return {
+                        "success": False,
+                        "message": _("A project with this name already exists for the selected program."),
+                        "details": "",
+                    }
+                return res
             else:
                 return {
                     "success": False,
@@ -195,9 +207,8 @@ class CreateProjectMutation(
                     "details": "",
                 }
         else:
-            try:
-                res = service.create(data)
-            except IntegrityError:
+            res = service.create(data)
+            if not res['success'] and 'uniq_live_project_name_per_plan' in str(res.get('detail', '')):
                 return {
                     "success": False,
                     "message": _("A project with this name already exists for the selected program."),
