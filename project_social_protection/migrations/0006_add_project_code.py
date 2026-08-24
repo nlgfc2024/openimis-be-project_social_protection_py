@@ -21,9 +21,8 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name='project',
             constraint=models.UniqueConstraint(
-                condition=models.Q(('is_deleted', False)),
                 fields=('code',),
-                name='uniq_live_project_code',
+                name='uniq_project_code',
             ),
         ),
     ]

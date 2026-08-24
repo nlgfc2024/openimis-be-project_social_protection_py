@@ -289,7 +289,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
                 return {
                     'success': False,
                     'message': 'Failed to create Project',
-                    'detail': 'duplicate key violates unique constraint "uniq_live_project_code"',
+                    'detail': 'duplicate key violates unique constraint "uniq_project_code"',
                     'data': '',
                 }
             return {'success': True, 'message': 'Ok', 'detail': '', 'data': {'id': 'unused'}}

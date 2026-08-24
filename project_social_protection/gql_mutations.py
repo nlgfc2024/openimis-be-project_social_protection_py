@@ -191,7 +191,7 @@ class CreateProjectMutation(
                     break
 
                 detail = str(res.get('detail', ''))
-                if 'uniq_live_project_code' in detail:
+                if 'uniq_project_code' in detail:
                     continue
                 if 'uniq_live_project_name_per_plan' in detail:
                     return {

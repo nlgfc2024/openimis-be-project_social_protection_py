@@ -83,10 +83,12 @@ class Project(core_models.HistoryBusinessModel):
                 condition=models.Q(is_deleted=False),
                 name='uniq_live_project_name_per_plan',
             ),
-            # Project code is MIS-generated and must be globally unique.
+            # Codes are permanent MIS-generated identifiers. They are globally unique
+            # and deliberately never reused after soft deletion, so exports, paper
+            # forms, and undo-delete operations always refer to one project.
             models.UniqueConstraint(
                 fields=['code'],
-                name='uniq_live_project_code',
+                name='uniq_project_code',
             ),
         ]
 
