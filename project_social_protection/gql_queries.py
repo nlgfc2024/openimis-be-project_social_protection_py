@@ -124,6 +124,7 @@ class ProjectFilter(django_filters.FilterSet):
 
 class ProjectGQLType(DjangoObjectType):
     uuid = graphene.String(source='uuid')
+    code = graphene.String()
     assigned_beneficiaries_count = graphene.Int()
 
     def resolve_assigned_beneficiaries_count(self, info):
@@ -155,6 +156,29 @@ class ProjectGQLType(DjangoObjectType):
 
     class Meta:
         model = Project
+        fields = (
+            'id',
+            'uuid',
+            'code',
+            'name',
+            'status',
+            'benefit_plan',
+            'activity',
+            'location',
+            'target_beneficiaries',
+            'working_days',
+            'allows_multiple_enrollments',
+            'micro_catchment',
+            'hotspot',
+            'known_place',
+            'foreman',
+            'supervisor',
+            'is_deleted',
+            'user_updated',
+            'version',
+            'date_created',
+            'date_updated',
+        )
         interfaces = (graphene.relay.Node,)
         filterset_class = ProjectFilter
         connection_class = ExtendedConnection
