@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext as _
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import MinValueValidator
 
 from core import models as core_models
 from core.models import UUIDModel, ObjectMutation, MutationLog
@@ -9,6 +9,13 @@ from core.models import UUIDModel, ObjectMutation, MutationLog
 # (BenefitPlan / Beneficiary / GroupBeneficiary) stay in social_protection and are
 # referenced lazily by string so there is no import cycle.
 from social_protection.models import BeneficiaryStatus
+
+
+def validate_binary_completion(value):
+    if value not in (0, 100):
+        raise ValidationError(
+            _('Work completion must be either 0 (absent) or 100 (present).')
+        )
 
 
 # NOTE ON TABLE NAMES
@@ -165,14 +172,17 @@ class GroupBeneficiaryProjectEnrollment(core_models.HistoryBusinessModel):
 
 class AbstractProjectTimeEntry(core_models.HistoryBusinessModel):
     """
-    Base model for recording daily percent completion for enrollments in projects.
+    Base model for recording daily attendance for enrollments in projects.
+
+    The existing integer field is retained for API compatibility: 0 means absent
+    and 100 means present. A missing row means attendance has not been recorded.
     Subclasses must implement `_get_enrollment_instance()`.
     """
     # Sequential workday number within the project (1..working_days).
     day_number = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
-    # Percentage of work completed for this day (0–100).
+    # Binary attendance value: 0=absent, 100=present.
     percent_complete = models.IntegerField(
-        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        validators=[validate_binary_completion],
     )
 
     class Meta:
@@ -197,7 +207,8 @@ class AbstractProjectTimeEntry(core_models.HistoryBusinessModel):
 
     def __str__(self):
         enrollment = self._get_enrollment_instance()
-        return f"{enrollment} - Day {self.day_number}: {self.percent_complete}%"
+        status = _('Present') if self.percent_complete == 100 else _('Absent')
+        return f"{enrollment} - Day {self.day_number}: {status}"
 
 
 class BeneficiaryProjectTimeEntry(AbstractProjectTimeEntry):
@@ -211,6 +222,12 @@ class BeneficiaryProjectTimeEntry(AbstractProjectTimeEntry):
     class Meta:
         db_table = "social_protection_beneficiaryprojecttimeentry"
         unique_together = ('enrollment', 'day_number')
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(percent_complete__in=[0, 100]),
+                name='beneficiary_time_entry_binary_completion',
+            ),
+        ]
         verbose_name = _("Beneficiary Project Time Entry")
         verbose_name_plural = _("Beneficiary Project Time Entries")
 
@@ -229,6 +246,12 @@ class GroupBeneficiaryProjectTimeEntry(AbstractProjectTimeEntry):
     class Meta:
         db_table = "social_protection_groupbeneficiaryprojecttimeentry"
         unique_together = ('enrollment', 'day_number')
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(percent_complete__in=[0, 100]),
+                name='group_time_entry_binary_completion',
+            ),
+        ]
         verbose_name = _("Group Beneficiary Project Time Entry")
         verbose_name_plural = _("Group Beneficiary Project Time Entries")
 

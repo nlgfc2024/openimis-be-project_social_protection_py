@@ -265,9 +265,9 @@ class ProjectEnrollmentService:
                 )
 
             percent = entry['percent_complete']
-            if not 0 <= percent <= 100:
+            if percent not in (0, 100):
                 raise ValidationError(
-                    _('Percent complete must be between 0 and 100.')
+                    _('Work completion must be either 0 (absent) or 100 (present).')
                 )
 
         # Upsert: for entries submitted without an id, resolve the existing row by
