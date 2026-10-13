@@ -264,11 +264,33 @@ class ProjectEnrollmentService:
                     % {'working_days': project.working_days}
                 )
 
-            percent = entry['percent_complete']
+            if entry.get('clear'):
+                continue
+
+            percent = entry.get('percent_complete')
+            if percent is None:
+                raise ValidationError(
+                    _('Percent complete is required unless clearing an attendance entry.')
+                )
             if not 0 <= percent <= 100:
                 raise ValidationError(
                     _('Percent complete must be between 0 and 100.')
                 )
+
+        # A cleared cell returns to "not recorded".  Remove its active time
+        # entry so the absence/presence value is not retained in the database.
+        for entry in (e for e in time_entries_data if e.get('clear')):
+            existing_entry = time_entry_model.objects.filter(
+                enrollment_id=entry['enrollment_id'],
+                day_number=entry['day_number'],
+                is_deleted=False,
+            ).first()
+            if existing_entry:
+                existing_entry.delete(user=self.user)
+
+        time_entries_data = [e for e in time_entries_data if not e.get('clear')]
+        if not time_entries_data:
+            return
 
         # Upsert: for entries submitted without an id, resolve the existing row by
         # (enrollment, day_number) so a resubmit updates instead of hitting the

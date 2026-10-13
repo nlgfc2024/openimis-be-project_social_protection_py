@@ -447,7 +447,8 @@ class TimeEntryInputType(graphene.InputObjectType):
     id = graphene.UUID(required=False)
     enrollment_id = graphene.UUID(required=True)
     day_number = graphene.Int(required=True)
-    percent_complete = graphene.Int(required=True)
+    percent_complete = graphene.Int(required=False)
+    clear = graphene.Boolean(required=False)
 
 
 class BulkUpdateBeneficiaryTimeEntriesMutation(BaseMutation):
