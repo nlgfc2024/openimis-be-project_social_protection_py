@@ -277,9 +277,19 @@ class ProjectEnrollmentService:
                     _('Percent complete must be between 0 and 100.')
                 )
 
-        # A cleared cell returns to "not recorded".  Remove its active time
-        # entry so the absence/presence value is not retained in the database.
-        for entry in (e for e in time_entries_data if e.get('clear')):
+        # `clear` is an API-only instruction, not a time-entry model field. Split
+        # it out before bulk_save so `clear: false` cannot be passed to the ORM.
+        clear_entries = []
+        entries_to_save = []
+        for entry in time_entries_data:
+            if entry.pop('clear', False):
+                clear_entries.append(entry)
+            else:
+                entries_to_save.append(entry)
+
+        # A cleared cell returns to "not recorded". Remove its active time entry
+        # so the absence/presence value is not retained in the database.
+        for entry in clear_entries:
             existing_entry = time_entry_model.objects.filter(
                 enrollment_id=entry['enrollment_id'],
                 day_number=entry['day_number'],
@@ -288,13 +298,13 @@ class ProjectEnrollmentService:
             if existing_entry:
                 existing_entry.delete(user=self.user)
 
-        time_entries_data = [e for e in time_entries_data if not e.get('clear')]
+        time_entries_data = entries_to_save
         if not time_entries_data:
             return
 
-        # Upsert: for entries submitted without an id, resolve the existing row by
-        # (enrollment, day_number) so a resubmit updates instead of hitting the
-        # unique_together constraint. unique_together=('enrollment','day_number').
+        # Upsert: include soft-deleted rows in the lookup. A cleared day retains
+        # its unique (enrollment, day_number) row, so recording that day again must
+        # revive the old row rather than attempting a duplicate insert.
         entries_without_id = [e for e in time_entries_data if not e.get('id')]
         if entries_without_id:
             lookup = Q()
@@ -304,17 +314,18 @@ class ProjectEnrollmentService:
                     day_number=e['day_number'],
                 )
             existing = {
-                (str(te.enrollment_id), te.day_number): te.id
-                for te in time_entry_model.objects.filter(
-                    lookup, is_deleted=False
-                )
+                (str(te.enrollment_id), te.day_number): te
+                for te in time_entry_model.objects.filter(lookup)
             }
             for e in entries_without_id:
                 match = existing.get((str(e['enrollment_id']), e['day_number']))
                 if match:
-                    e['id'] = match
+                    e['id'] = match.id
+                    if match.is_deleted:
+                        e['is_deleted'] = False
 
         time_entry_model.bulk_save(
             data_list=time_entries_data,
-            user=self.user
+            user=self.user,
+            include_deleted=True,
         )
