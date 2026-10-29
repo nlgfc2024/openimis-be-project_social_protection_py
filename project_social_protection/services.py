@@ -111,6 +111,44 @@ class ProjectEnrollmentService:
         self.enrollment_type = enrollment_type
         self.config = self.CONFIGS[enrollment_type]
 
+    def _beneficiary_labels(self, beneficiary_ids):
+        """Return human-readable identifiers for enrollment validation messages."""
+        beneficiary_model = self.config['beneficiary_model']
+        if self.enrollment_type == self.INDIVIDUAL:
+            beneficiaries = beneficiary_model.objects.filter(
+                id__in=beneficiary_ids,
+                is_deleted=False,
+            ).select_related('individual')
+            labels = {}
+            for beneficiary in beneficiaries:
+                individual = beneficiary.individual
+                name = ' '.join(filter(None, [individual.first_name, individual.last_name]))
+                form_number = (individual.json_ext or {}).get('form_number')
+                labels[beneficiary.id] = (
+                    f"{name} (Form Number: {form_number})"
+                    if form_number else name or str(beneficiary.id)
+                )
+            return sorted(
+                labels.get(beneficiary_id, str(beneficiary_id))
+                for beneficiary_id in beneficiary_ids
+            )
+
+        beneficiaries = beneficiary_model.objects.filter(
+            id__in=beneficiary_ids,
+            is_deleted=False,
+        ).select_related('group')
+        labels = {
+            beneficiary.id: (
+                f"Household {beneficiary.group.code}"
+                if beneficiary.group and beneficiary.group.code else str(beneficiary.id)
+            )
+            for beneficiary in beneficiaries
+        }
+        return sorted(
+            labels.get(beneficiary_id, str(beneficiary_id))
+            for beneficiary_id in beneficiary_ids
+        )
+
     @register_service_signal('project_enrollment_service.enroll_project')
     @transaction.atomic
     def enroll_project(self, obj_data):
@@ -185,14 +223,26 @@ class ProjectEnrollmentService:
                 ).values_list(fk_field, flat=True)
             )
             if already_enrolled_elsewhere:
-                msg = _(
-                    "%(label)s %(ids)s are already enrolled in another "
-                    "project. This project does not allow multiple "
-                    "enrollments."
-                ) % {
-                    'label': self.config['error_label'],
-                    'ids': already_enrolled_elsewhere
-                }
+                beneficiaries = self._beneficiary_labels(
+                    already_enrolled_elsewhere
+                )
+                if self.enrollment_type == self.GROUP:
+                    subject = ', '.join(beneficiaries)
+                    verb = 'is' if len(beneficiaries) == 1 else 'are'
+                    msg = _(
+                        "%(households)s %(verb)s already enrolled in another "
+                        "project. This project does not allow multiple "
+                        "enrollments."
+                    ) % {'households': subject, 'verb': verb}
+                else:
+                    msg = _(
+                        "%(label)s %(beneficiaries)s are already enrolled in another "
+                        "project. This project does not allow multiple "
+                        "enrollments."
+                    ) % {
+                        'label': self.config['error_label'],
+                        'beneficiaries': ', '.join(beneficiaries),
+                    }
                 raise ValueError(msg)
 
         data_list = []
