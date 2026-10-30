@@ -155,6 +155,29 @@ class ProjectEnrollmentTargetBeneficiariesTest(TestCase):
         )
         self.assertEqual(enrollments.count(), 2)
 
+    def test_enrollment_conflict_names_beneficiary_and_existing_project(self):
+        assigned_project = self._make_project(target_beneficiaries=2)
+        target_project = self._make_project(target_beneficiaries=2)
+
+        service = ProjectEnrollmentService(
+            self.user, ProjectEnrollmentService.INDIVIDUAL
+        )
+        service.enroll_project({
+            'ids': [self.beneficiary_uuids[0]],
+            'project_id': str(assigned_project.id),
+        })
+
+        with self.assertRaises(ValueError) as context:
+            service.enroll_project({
+                'ids': [self.beneficiary_uuids[0]],
+                'project_id': str(target_project.id),
+            })
+
+        message = str(context.exception)
+        self.assertIn('already attached to another project in this phase', message)
+        self.assertIn('Ind0', message)
+        self.assertIn(assigned_project.name, message)
+
     def test_cleared_time_entry_can_be_recorded_again(self):
         project = self._make_project(target_beneficiaries=1)
         service = ProjectEnrollmentService(
@@ -321,3 +344,35 @@ class ProjectGroupEnrollmentTargetBeneficiariesTest(TestCase):
             project_id=project.id, is_deleted=False
         )
         self.assertEqual(enrollments.count(), 0)
+
+    def test_group_enrollment_conflict_names_group_and_existing_project(self):
+        assigned_project = create_project(
+            f'Assigned group project {uuid_lib.uuid4()}',
+            self.benefit_plan,
+            self.user.username,
+            target_beneficiaries=2,
+        )
+        target_project = create_project(
+            f'Target group project {uuid_lib.uuid4()}',
+            self.benefit_plan,
+            self.user.username,
+            target_beneficiaries=2,
+        )
+        service = ProjectEnrollmentService(
+            self.user, ProjectEnrollmentService.GROUP
+        )
+        service.enroll_project({
+            'ids': [self.group_beneficiary_uuids[0]],
+            'project_id': str(assigned_project.id),
+        })
+
+        with self.assertRaises(ValueError) as context:
+            service.enroll_project({
+                'ids': [self.group_beneficiary_uuids[0]],
+                'project_id': str(target_project.id),
+            })
+
+        message = str(context.exception)
+        self.assertIn('already attached to another project in this phase', message)
+        self.assertIn('GRP1', message)
+        self.assertIn(assigned_project.name, message)

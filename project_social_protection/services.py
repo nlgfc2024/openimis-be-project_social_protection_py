@@ -69,6 +69,7 @@ class ProjectEnrollmentService:
             'beneficiary_model': Beneficiary,
             'fk_field': 'beneficiary_id',
             'error_label': 'Beneficiaries',
+            'select_related': ('beneficiary__individual',),
         },
         GROUP: {
             'enrollment_model': GroupBeneficiaryProjectEnrollment,
@@ -76,6 +77,7 @@ class ProjectEnrollmentService:
             'beneficiary_model': GroupBeneficiary,
             'fk_field': 'group_beneficiary_id',
             'error_label': 'Group beneficiaries',
+            'select_related': ('group_beneficiary__group',),
         },
     }
 
@@ -110,6 +112,23 @@ class ProjectEnrollmentService:
         self.user = user
         self.enrollment_type = enrollment_type
         self.config = self.CONFIGS[enrollment_type]
+
+    def _describe_enrollment_conflict(self, enrollment):
+        """Return a user-facing description without exposing internal UUIDs."""
+        if self.enrollment_type == self.INDIVIDUAL:
+            individual = enrollment.beneficiary.individual
+            beneficiary_name = ' '.join(
+                part for part in (individual.first_name, individual.last_name) if part
+            ) or _('Unnamed beneficiary')
+        else:
+            beneficiary_name = enrollment.group_beneficiary.group.code or _(
+                'Unnamed group beneficiary'
+            )
+
+        return _('%(beneficiary)s (project: %(project)s)') % {
+            'beneficiary': beneficiary_name,
+            'project': enrollment.project.name,
+        }
 
     @register_service_signal('project_enrollment_service.enroll_project')
     @transaction.atomic
@@ -176,22 +195,24 @@ class ProjectEnrollmentService:
             raise ValueError(msg)
 
         if not project.allows_multiple_enrollments and to_enroll:
-            already_enrolled_elsewhere = set(
-                enrollment_model.objects.filter(
-                    **{f'{fk_field}__in': to_enroll},
-                    is_deleted=False
-                ).exclude(
-                    project_id=project_id
-                ).values_list(fk_field, flat=True)
-            )
+            already_enrolled_elsewhere = enrollment_model.objects.filter(
+                **{f'{fk_field}__in': to_enroll},
+                is_deleted=False,
+            ).exclude(
+                project_id=project_id
+            ).select_related(
+                'project', *self.config['select_related']
+            ).order_by('project__name')
             if already_enrolled_elsewhere:
                 msg = _(
-                    "%(label)s %(ids)s are already enrolled in another "
-                    "project. This project does not allow multiple "
-                    "enrollments."
+                    "Cannot assign %(label)s because they are already attached "
+                    "to another project in this phase: %(conflicts)s."
                 ) % {
                     'label': self.config['error_label'],
-                    'ids': already_enrolled_elsewhere
+                    'conflicts': '; '.join(
+                        self._describe_enrollment_conflict(enrollment)
+                        for enrollment in already_enrolled_elsewhere
+                    ),
                 }
                 raise ValueError(msg)
 
