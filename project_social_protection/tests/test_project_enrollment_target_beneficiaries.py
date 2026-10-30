@@ -14,6 +14,7 @@ from social_protection.tests.test_helpers import (
 )
 from project_social_protection.models import (
     BeneficiaryProjectEnrollment,
+    BeneficiaryProjectTimeEntry,
     GroupBeneficiaryProjectEnrollment,
 )
 from project_social_protection.services import ProjectEnrollmentService
@@ -157,6 +158,7 @@ class ProjectEnrollmentTargetBeneficiariesTest(TestCase):
     def test_enrollment_conflict_names_beneficiary_and_existing_project(self):
         assigned_project = self._make_project(target_beneficiaries=2)
         target_project = self._make_project(target_beneficiaries=2)
+
         service = ProjectEnrollmentService(
             self.user, ProjectEnrollmentService.INDIVIDUAL
         )
@@ -175,6 +177,57 @@ class ProjectEnrollmentTargetBeneficiariesTest(TestCase):
         self.assertIn('already attached to another project in this phase', message)
         self.assertIn('Ind0', message)
         self.assertIn(assigned_project.name, message)
+
+    def test_cleared_time_entry_can_be_recorded_again(self):
+        project = self._make_project(target_beneficiaries=1)
+        service = ProjectEnrollmentService(
+            self.user, ProjectEnrollmentService.INDIVIDUAL
+        )
+        service.enroll_project({
+            'ids': [self.beneficiary_uuids[0]],
+            'project_id': str(project.id),
+        })
+        enrollment = BeneficiaryProjectEnrollment.objects.get(
+            project_id=project.id,
+            beneficiary_id=self.beneficiary_uuids[0],
+            is_deleted=False,
+        )
+
+        service.bulk_update_time_entries({'time_entries': [{
+            'enrollment_id': str(enrollment.id),
+            'day_number': 1,
+            'percent_complete': 100,
+            'clear': False,
+        }]})
+        original_entry = BeneficiaryProjectTimeEntry.objects.get(
+            enrollment_id=enrollment.id,
+            day_number=1,
+        )
+
+        service.bulk_update_time_entries({'time_entries': [{
+            'enrollment_id': str(enrollment.id),
+            'day_number': 1,
+            'clear': True,
+        }]})
+        original_entry.refresh_from_db()
+        self.assertTrue(original_entry.is_deleted)
+
+        service.bulk_update_time_entries({'time_entries': [{
+            'enrollment_id': str(enrollment.id),
+            'day_number': 1,
+            'percent_complete': 0,
+            'clear': False,
+        }]})
+
+        entries = BeneficiaryProjectTimeEntry.objects.filter(
+            enrollment_id=enrollment.id,
+            day_number=1,
+        )
+        self.assertEqual(entries.count(), 1)
+        revived_entry = entries.get()
+        self.assertEqual(revived_entry.id, original_entry.id)
+        self.assertFalse(revived_entry.is_deleted)
+        self.assertEqual(revived_entry.percent_complete, 0)
 
     def test_unenroll_allowed_when_project_is_already_over_target(self):
         project = self._make_project(target_beneficiaries=3)
