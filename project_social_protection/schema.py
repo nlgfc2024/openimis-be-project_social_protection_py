@@ -130,7 +130,7 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
             filters.append(Q(location__id__in=descendant_ids))
 
         query = ProjectGQLType.with_assigned_beneficiaries_count(
-            Project.objects.filter(*filters)
+            Project.get_queryset(None, info).filter(*filters)
         )
         return gql_optimizer.query(query, info)
 
@@ -139,7 +139,8 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
         if not info.context.user.has_perms(perms):
             raise PermissionDenied(_("unauthorized"))
         errors = validate_project_unique_name(
-            kwargs['project_name'], kwargs['benefit_plan_id']
+            kwargs['project_name'], kwargs['benefit_plan_id'],
+            queryset=Project.get_queryset(None, info),
         )
         if errors:
             return ValidationMessageGQLType(
@@ -170,7 +171,7 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
             ProjectSocialProtectionConfig.gql_project_search_perms
         )
 
-        query = Project.history.filter(*filters)
+        query = Project.get_history_queryset(None, info).filter(*filters)
 
         sort_alphabetically = kwargs.get("sort_alphabetically", None)
         if sort_alphabetically:
@@ -183,7 +184,7 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
             ProjectSocialProtectionConfig.gql_project_search_perms
         )
         return gql_optimizer.query(
-            BeneficiaryProjectEnrollmentGQLType._meta.model.objects.filter(
+            BeneficiaryProjectEnrollmentGQLType._meta.model.get_queryset(None, info).filter(
                 is_deleted=False
             ),
             info,
@@ -195,7 +196,7 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
             ProjectSocialProtectionConfig.gql_project_search_perms
         )
         return gql_optimizer.query(
-            GroupBeneficiaryProjectEnrollmentGQLType._meta.model.objects.filter(
+            GroupBeneficiaryProjectEnrollmentGQLType._meta.model.get_queryset(None, info).filter(
                 is_deleted=False
             ),
             info,
@@ -207,7 +208,10 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
             ProjectSocialProtectionConfig.gql_project_search_perms
         )
         return gql_optimizer.query(
-            BeneficiaryGQLType._meta.model.objects.filter(is_deleted=False),
+            BeneficiaryGQLType._meta.model.get_queryset(None, info.context.user).filter(
+                is_deleted=False,
+                benefit_plan_id__in=Project.get_queryset(None, info).values("benefit_plan_id"),
+            ),
             info,
         )
 
@@ -217,7 +221,10 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
             ProjectSocialProtectionConfig.gql_project_search_perms
         )
         return gql_optimizer.query(
-            GroupBeneficiaryGQLType._meta.model.objects.filter(is_deleted=False),
+            GroupBeneficiaryGQLType._meta.model.get_queryset(None, info.context.user).filter(
+                is_deleted=False,
+                benefit_plan_id__in=Project.get_queryset(None, info).values("benefit_plan_id"),
+            ),
             info,
         )
 

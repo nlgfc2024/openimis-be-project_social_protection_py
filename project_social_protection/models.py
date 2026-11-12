@@ -9,6 +9,7 @@ from core.models import UUIDModel, ObjectMutation, MutationLog
 # (BenefitPlan / Beneficiary / GroupBeneficiary) stay in social_protection and are
 # referenced lazily by string so there is no import cycle.
 from social_protection.models import BeneficiaryStatus
+from project_social_protection.scope import allowed_project_location_ids
 
 
 # NOTE ON TABLE NAMES
@@ -73,6 +74,29 @@ class Project(core_models.HistoryBusinessModel):
         related_name='supervisor_projects',
     )
 
+    @classmethod
+    def get_queryset(cls, queryset, user):
+        queryset = queryset if queryset is not None else cls.objects.all()
+        location_ids = allowed_project_location_ids(user)
+        if location_ids is None:
+            return queryset
+        if not location_ids:
+            return queryset.none()
+        return queryset.filter(location_id__in=location_ids)
+
+    @classmethod
+    def scope_related_queryset(cls, queryset, user, project_field="project_id"):
+        if allowed_project_location_ids(user) is None:
+            return queryset
+        projects = cls.get_queryset(None, user)
+        return queryset.filter(**{f"{project_field}__in": projects.values("pk")})
+
+    @classmethod
+    def get_history_queryset(cls, queryset, user):
+        queryset = queryset if queryset is not None else cls.history.all()
+        # History belongs to the current project, including a soft-deleted one.
+        return cls.scope_related_queryset(queryset, user, project_field="id")
+
     class Meta:
         db_table = "social_protection_project"
         constraints = [
@@ -115,6 +139,11 @@ class BeneficiaryProjectEnrollment(core_models.HistoryBusinessModel):
         null=False,
     )
 
+    @classmethod
+    def get_queryset(cls, queryset, user):
+        queryset = queryset if queryset is not None else cls.objects.all()
+        return Project.scope_related_queryset(queryset, user)
+
     class Meta:
         db_table = "social_protection_beneficiaryprojectenrollment"
         unique_together = ('beneficiary', 'project')
@@ -145,6 +174,11 @@ class GroupBeneficiaryProjectEnrollment(core_models.HistoryBusinessModel):
         related_name='group_beneficiary_enrollments',
         null=False,
     )
+
+    @classmethod
+    def get_queryset(cls, queryset, user):
+        queryset = queryset if queryset is not None else cls.objects.all()
+        return Project.scope_related_queryset(queryset, user)
 
     class Meta:
         db_table = "social_protection_groupbeneficiaryprojectenrollment"
@@ -177,6 +211,11 @@ class AbstractProjectTimeEntry(core_models.HistoryBusinessModel):
 
     class Meta:
         abstract = True
+
+    @classmethod
+    def get_queryset(cls, queryset, user):
+        queryset = queryset if queryset is not None else cls.objects.all()
+        return Project.scope_related_queryset(queryset, user, "enrollment__project_id")
 
     def _get_enrollment_instance(self):
         """

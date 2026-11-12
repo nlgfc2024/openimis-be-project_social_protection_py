@@ -2,6 +2,8 @@ import graphene
 import graphene_django_optimizer as gql_optimizer
 import django_filters
 from django.db.models import Count, Q
+from django.core.exceptions import PermissionDenied
+from django.utils.translation import gettext as _
 from graphene_django import DjangoObjectType
 
 from core import ExtendedConnection
@@ -16,23 +18,37 @@ from project_social_protection.models import (
     BeneficiaryProjectEnrollment,
     GroupBeneficiaryProjectEnrollment,
 )
+from project_social_protection.apps import ProjectSocialProtectionConfig
 
 
-class BeneficiaryProjectTimeEntryGQLType(DjangoObjectType):
+def require_project_read(info):
+    user = info.context.user
+    if user.is_anonymous or not user.has_perms(ProjectSocialProtectionConfig.gql_project_search_perms):
+        raise PermissionDenied(_("unauthorized"))
+
+
+class ProjectReadScopeMixin:
+    @classmethod
+    def get_queryset(cls, queryset, info):
+        require_project_read(info)
+        return cls._meta.model.get_queryset(queryset, info)
+
+
+class BeneficiaryProjectTimeEntryGQLType(ProjectReadScopeMixin, DjangoObjectType):
     class Meta:
         model = BeneficiaryProjectTimeEntry
         fields = ("id", "day_number", "percent_complete")
         interfaces = (graphene.relay.Node,)
 
 
-class GroupBeneficiaryProjectTimeEntryGQLType(DjangoObjectType):
+class GroupBeneficiaryProjectTimeEntryGQLType(ProjectReadScopeMixin, DjangoObjectType):
     class Meta:
         model = GroupBeneficiaryProjectTimeEntry
         fields = ("id", "day_number", "percent_complete")
         interfaces = (graphene.relay.Node,)
 
 
-class BeneficiaryProjectEnrollmentGQLType(DjangoObjectType):
+class BeneficiaryProjectEnrollmentGQLType(ProjectReadScopeMixin, DjangoObjectType):
     uuid = graphene.String(source='uuid')
     time_entries = graphene.List(BeneficiaryProjectTimeEntryGQLType)
 
@@ -48,12 +64,13 @@ class BeneficiaryProjectEnrollmentGQLType(DjangoObjectType):
         connection_class = ExtendedConnection
 
     def resolve_time_entries(self, info, **kwargs):
-        qs = BeneficiaryProjectTimeEntry.objects.filter(
+        require_project_read(info)
+        qs = BeneficiaryProjectTimeEntry.get_queryset(None, info).filter(
             enrollment=self, is_deleted=False)
         return gql_optimizer.query(qs, info)
 
 
-class GroupBeneficiaryProjectEnrollmentGQLType(DjangoObjectType):
+class GroupBeneficiaryProjectEnrollmentGQLType(ProjectReadScopeMixin, DjangoObjectType):
     uuid = graphene.String(source='uuid')
     time_entries = graphene.List(GroupBeneficiaryProjectTimeEntryGQLType)
 
@@ -69,7 +86,8 @@ class GroupBeneficiaryProjectEnrollmentGQLType(DjangoObjectType):
         connection_class = ExtendedConnection
 
     def resolve_time_entries(self, info, **kwargs):
-        qs = GroupBeneficiaryProjectTimeEntry.objects.filter(
+        require_project_read(info)
+        qs = GroupBeneficiaryProjectTimeEntry.get_queryset(None, info).filter(
             enrollment=self, is_deleted=False)
         return gql_optimizer.query(qs, info)
 
@@ -122,7 +140,7 @@ class ProjectFilter(django_filters.FilterSet):
         }
 
 
-class ProjectGQLType(DjangoObjectType):
+class ProjectGQLType(ProjectReadScopeMixin, DjangoObjectType):
     uuid = graphene.String(source='uuid')
     code = graphene.String()
     assigned_beneficiaries_count = graphene.Int()
@@ -190,6 +208,11 @@ class ProjectHistoryGQLType(DjangoObjectType):
     def resolve_user_updated(self, info):
         return self.user_updated
 
+    @classmethod
+    def get_queryset(cls, queryset, info):
+        require_project_read(info)
+        return Project.get_history_queryset(queryset, info)
+
     class Meta:
         model = Project.history.model
         interfaces = (graphene.relay.Node,)
@@ -221,11 +244,15 @@ class ProjectHistoryGQLType(DjangoObjectType):
 # social_protection no longer references the project domain.
 
 class ProjectEligibilityFilterMixin:
+    def _authorized_project(self, value):
+        user = getattr(self.request, "user", None)
+        return Project.get_queryset(None, user).filter(id=value, is_deleted=False).first()
+
     def filter_eligible_for_project(self, queryset, name, value):
         if not value:
             return queryset
 
-        project = Project.objects.filter(id=value).first()
+        project = self._authorized_project(value)
         if project is None:
             return queryset.none()
         enrollment_model = self._get_enrollment_model()
@@ -251,6 +278,8 @@ class ProjectEligibilityFilterMixin:
     def filter_enrolled_in_project(self, queryset, name, value):
         if not value:
             return queryset
+        if self._authorized_project(value) is None:
+            return queryset.none()
         enrollment_model = self._get_enrollment_model()
         beneficiary_field = self._get_beneficiary_field()
         enrolled_ids = enrollment_model.objects.filter(
