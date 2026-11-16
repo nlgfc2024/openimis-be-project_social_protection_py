@@ -1,4 +1,5 @@
 import json
+from django.utils.translation import gettext as _
 from core.models.openimis_graphql_test_case import openIMISGraphQLTestCase, BaseTestContext
 from core.test_helpers import create_test_interactive_user, create_test_role
 from project_social_protection.tests.test_helpers import find_or_create_activity
@@ -66,7 +67,7 @@ class ActivitiesGQLTest(openIMISGraphQLTestCase):
         response = self.query(query_str)
 
         content = json.loads(response.content)
-        self.assertEqual(content['errors'][0]['message'], 'Unauthorized')
+        self.assertEqual(content['errors'][0]['message'], _('unauthorized'))
 
         # Health Enrollment Officier (role=1) sees nothing
         response = self.query(
@@ -74,4 +75,4 @@ class ActivitiesGQLTest(openIMISGraphQLTestCase):
             headers={"HTTP_AUTHORIZATION": f"Bearer {self.med_enroll_officer_token}"}
         )
         content = json.loads(response.content)
-        self.assertEqual(content['errors'][0]['message'], 'Unauthorized')
+        self.assertEqual(content['errors'][0]['message'], _('unauthorized'))

@@ -170,7 +170,7 @@ class CreateProjectMutation(
         service = ProjectService(user)
         if ProjectSocialProtectionConfig.project_code_enabled:
             max_retries = 5
-            for _ in range(max_retries):
+            for _attempt in range(max_retries):
                 try:
                     code = generate_project_code(data["location"])
                 except ValidationError as exc:

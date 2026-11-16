@@ -1,5 +1,5 @@
 import json
-import re
+from django.utils.translation import gettext as _
 from unittest.mock import patch
 from core.models import User
 from core.models.openimis_graphql_test_case import BaseTestContext
@@ -136,7 +136,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
         # Anonymous user
         response = self.query(query_str)
         content = json.loads(response.content)
-        self.assertEqual(content['errors'][0]['message'], 'Unauthorized')
+        self.assertEqual(content['errors'][0]['message'], _('unauthorized'))
 
         # Unprivileged user
         response = self.query(
@@ -144,7 +144,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
             headers={"HTTP_AUTHORIZATION": f"Bearer {self.test_officer_token}"}
         )
         content = json.loads(response.content)
-        self.assertEqual(content['errors'][0]['message'], 'Unauthorized')
+        self.assertEqual(content['errors'][0]['message'], _('unauthorized'))
 
     def test_project_query_with_location_filter(self):
         query = """
@@ -235,8 +235,8 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
         district = self._find_location_by_type(created_project.location, 'R')
         ta = self._find_location_by_type(created_project.location, 'D')
         expected_prefix = (
-          self._normalize_numeric_code(getattr(district, 'code', None), district_digits)
-          + self._normalize_numeric_code(getattr(ta, 'code', None), ta_digits)
+            self._normalize_numeric_code(getattr(district, 'code', None), district_digits)
+            + self._normalize_numeric_code(getattr(ta, 'code', None), ta_digits)
         )
 
         self.assertTrue(created_project.code)
@@ -664,7 +664,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
         self.assertResponseNoErrors(response)
         data = json.loads(response.content)['data']['undoDeleteProject']
         self.assert_mutation_error(
-            data['internalId'], self.user_token, "name_exists"
+            data['internalId'], self.user_token, "already exists"
         )
 
     def test_project_history_query_success(self):
@@ -727,7 +727,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
         # Anonymous
         response = self.query(query)
         content = json.loads(response.content)
-        self.assertEqual(content['errors'][0]['message'], 'Unauthorized')
+        self.assertEqual(content['errors'][0]['message'], _('unauthorized'))
 
         # Unprivileged user
         response = self.query(
@@ -735,7 +735,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
             headers={"HTTP_AUTHORIZATION": f"Bearer {self.test_officer_token}"}
         )
         content = json.loads(response.content)
-        self.assertEqual(content['errors'][0]['message'], 'Unauthorized')
+        self.assertEqual(content['errors'][0]['message'], _('unauthorized'))
 
     def test_project_history_query_search(self):
         query = """
