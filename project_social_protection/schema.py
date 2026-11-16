@@ -139,8 +139,7 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
         if not info.context.user.has_perms(perms):
             raise PermissionDenied(_("unauthorized"))
         errors = validate_project_unique_name(
-            kwargs['project_name'], kwargs['benefit_plan_id'],
-            queryset=Project.get_queryset(None, info),
+            kwargs['project_name'], kwargs['benefit_plan_id']
         )
         if errors:
             return ValidationMessageGQLType(

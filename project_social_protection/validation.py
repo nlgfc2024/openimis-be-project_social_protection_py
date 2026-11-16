@@ -23,11 +23,10 @@ def get_max_target_beneficiaries():
         return DEFAULT_MAX_TARGET_BENEFICIARIES
 
 
-def validate_project_unique_name(name, benefit_plan_id, uuid=None, queryset=None):
+def validate_project_unique_name(name, benefit_plan_id, uuid=None):
     if not name or not benefit_plan_id:
         return []
-    queryset = queryset if queryset is not None else Project.objects.all()
-    instance = queryset.filter(
+    instance = Project.objects.filter(
         name=name, benefit_plan__id=benefit_plan_id, is_deleted=False
     ).exclude(id=uuid).first()
     if instance:

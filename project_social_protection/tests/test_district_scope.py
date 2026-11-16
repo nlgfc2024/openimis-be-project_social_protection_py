@@ -232,10 +232,12 @@ class ProjectDistrictScopeTest(TestCase):
         visible = self.query('{ project(isDeleted:false) { edges { node { code } } } }')
         self.assertNotIn(project.code, {row["node"]["code"] for row in visible["project"]["edges"]})
 
-    def export(self, field, user=None, args=""):
+    def export(self, field, user=None, args="", relation=False):
+        fields = ["code", "benefitPlan.name"] if relation else ["code"]
+        columns = {"code": "Code", "benefit_plan__name": "Phase"}
         data = self.query(
-            f'query($columns:GenericScalar) {{ {field}(fields:["code"], fieldsColumns:$columns {args}) }}',
-            user=user, variables={"columns": json.dumps({"code": "Code"})},
+            f'query($columns:GenericScalar) {{ {field}(fields:{json.dumps(fields)}, fieldsColumns:$columns {args}) }}',
+            user=user, variables={"columns": json.dumps(columns)},
         )
         export = ExportableQueryModel.objects.get(name=data[field])
         with export.content.open("rb") as content:
@@ -244,7 +246,8 @@ class ProjectDistrictScopeTest(TestCase):
 
     def test_actual_project_export_is_scoped_without_type_hook(self):
         with patch.object(ProjectGQLType, "get_queryset", side_effect=AssertionError("type hook used")):
-            export, rows = self.export("projectExport")
+            export, rows = self.export("projectExport", relation=True)
+        self.assertEqual({row["Phase"] for row in rows}, {self.plan.name, self.group_plan.name})
         self.assertEqual({row["Code"] for row in rows}, {"PS-I0", "PS-I1", "PS-G0", "PS-G1"})
         self.assertEqual(export.user, self.reader)
 
@@ -322,11 +325,11 @@ class ProjectDistrictScopeTest(TestCase):
         )
         self.assertFalse(filtered.qs.exists())
 
-    def test_name_validity_read_does_not_reveal_hidden_project(self):
+    def test_name_validity_rejects_duplicate_in_another_district(self):
         data = self.query(f'''{{ projectNameValidity(
             projectName:"{self.projects[2].name}", benefitPlanId:"{self.plan.pk}"
         ) {{ isValid }} }}''')
-        self.assertTrue(data["projectNameValidity"]["isValid"])
+        self.assertFalse(data["projectNameValidity"]["isValid"])
 
     def test_request_reuses_one_assignment_lookup_across_read_paths(self):
         selection = """{

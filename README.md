@@ -46,11 +46,3 @@ policy. History follows the current parent project: its authorized users can see
 the complete trail, including records created before a district transfer and
 history for a permitted soft-deleted parent. Historical snapshot locations do not
 add another restriction.
-
-Both export base resolvers apply scope because Core's export mixin calls them
-directly. Core builds these files synchronously and restricts downloads to the
-requesting user; no Core or Location change is required.
-
-This is the read phase of issue #14. Applying the same scope to mutation services
-and proposed destination locations is a separate follow-up. This read-scope change
-does not claim to enforce the mutation boundary.
