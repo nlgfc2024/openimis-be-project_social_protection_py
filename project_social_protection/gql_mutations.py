@@ -15,6 +15,7 @@ from location.models import Location, Hotspot, MicroCatchment
 from social_protection.models import BenefitPlan, Beneficiary, GroupBeneficiary
 
 from project_social_protection.apps import ProjectSocialProtectionConfig
+from project_social_protection.mutation_scope import authorized_project, validate_destination
 from project_social_protection.models import (
     Project, ProjectMutation, Activity, ProjectStatus,
     BeneficiaryProjectTimeEntry, GroupBeneficiaryProjectTimeEntry,
@@ -81,7 +82,10 @@ def _resolve_malawi_fields(data):
     untouched."""
     if 'micro_catchment_id' in data:
         micro_catchment_id = data.pop('micro_catchment_id')
-        data['micro_catchment'] = MicroCatchment.objects.filter(id=micro_catchment_id).first() if micro_catchment_id else None
+        micro_catchment = MicroCatchment.objects.filter(id=micro_catchment_id).first() if micro_catchment_id else None
+        if micro_catchment_id and micro_catchment is None:
+            raise ValidationError(_("Invalid project micro-catchment."))
+        data['micro_catchment'] = micro_catchment
     if 'hotspot_id' in data:
         hotspot_id = data.pop('hotspot_id')
         hotspot = Hotspot.objects.filter(id=hotspot_id).first() if hotspot_id else None
@@ -157,6 +161,7 @@ class CreateProjectMutation(
         )
         data["activity"] = Activity.objects.get(id=data.pop("activity_id"))
         data["location"] = Location.objects.get(uuid=data.pop("location_id"))
+        validate_destination(user, {"location": data["location"]})
         # Creation always starts in preparation, regardless of a client-provided
         # status. Progression is allowed only after the project exists.
         data["status"] = ProjectStatus.PREPARATION
@@ -260,6 +265,7 @@ class UpdateProjectMutation(
             raise ValidationError("mutation.authentication_required")
 
     @classmethod
+    @transaction.atomic
     def _mutate(cls, user, **data):
         if "client_mutation_id" in data:
             data.pop("client_mutation_id")
@@ -273,7 +279,7 @@ class UpdateProjectMutation(
         }
         rebuild_name = bool(name_driving_fields.intersection(data))
 
-        project = Project.objects.get(id=data["id"])
+        project = authorized_project(user, data["id"])
 
         if 'benefit_plan_id' in data:
             data["benefit_plan"] = BenefitPlan.objects.get(
@@ -333,11 +339,7 @@ class DeleteProjectMutation(
                 "success": False, "message": "No IDs to delete", "details": ""
             }
 
-        with transaction.atomic():
-            for obj_id in ids:
-                res = service.delete({"id": obj_id})
-                if not res["success"]:
-                    return res
+        return service.change_deleted(ids)
 
     class Input(OpenIMISMutation.Input):
         ids = graphene.List(graphene.UUID)
@@ -373,11 +375,7 @@ class UndoDeleteProjectMutation(
                 "details": ""
             }
 
-        with transaction.atomic():
-            for obj_id in ids:
-                res = service.undo_delete({"id": obj_id})
-                if not res["success"]:
-                    return res
+        return service.change_deleted(ids, restore=True)
 
     class Input(OpenIMISMutation.Input):
         ids = graphene.List(graphene.UUID)

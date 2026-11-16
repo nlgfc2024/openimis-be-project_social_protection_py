@@ -46,3 +46,32 @@ policy. History follows the current parent project: its authorized users can see
 the complete trail, including records created before a district transfer and
 history for a permitted soft-deleted parent. Historical snapshot locations do not
 add another restriction.
+
+## Assigned-district project mutations
+
+Project services apply the same district policy to create, update, delete and
+restore operations. Updates authorize and lock the original project before
+checking the effective destination, so supplying an allowed location cannot pull
+an inaccessible project into scope. Transfers are permitted when both districts
+are assigned. Retained micro-catchment/hotspot links are validated on partial
+updates and restore: links must be active, belong to the location's district, and
+match each other when both are set. Optional links can be cleared explicitly.
+Legacy links that fail these checks must be corrected or cleared before an
+update or restore can succeed.
+
+Individual/group enrolment replacements authorize the project and every
+beneficiary being added or removed. Beneficiaries retain their narrower TA scope;
+omitting an inaccessible existing beneficiary from the replacement list is a
+removal and is rejected. Quotas and global assignment conflicts still apply,
+but conflicts with inaccessible projects return no project or beneficiary names.
+
+Attendance changes authorize active parent projects and enrolments before any
+writes. A supplied time-entry ID must belong to the supplied enrolment and day;
+it cannot be used to modify or move a different row. Attendance follows project
+district access, including other TAs in the assigned district.
+
+Delete/restore and attendance batches reject mixed-scope input atomically.
+Missing and inaccessible parents return the same authorization error. Mutation
+services reread assignments, and parent row locks coordinate mutations with
+project transfers. Existing GraphQL operation permissions and geography bypasses
+remain in effect; anonymous callers cannot use those bypasses to mutate data.

@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.utils.translation import gettext as _
@@ -21,6 +21,9 @@ from project_social_protection.models import (
     GroupBeneficiaryProjectEnrollment,
 )
 from project_social_protection.validation import ProjectValidation
+from project_social_protection.mutation_scope import (
+    authorized_project, require_authenticated, validate_destination,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,23 +35,30 @@ class ProjectService(BaseService):
         super().__init__(user, validation_class)
 
     @register_service_signal("project_service.create")
+    @transaction.atomic
     def create(self, obj_data):
+        validate_destination(self.user, obj_data)
         return super().create(obj_data)
 
     @register_service_signal("project_service.update")
+    @transaction.atomic
     def update(self, obj_data):
+        project = authorized_project(self.user, obj_data['id'])
+        validate_destination(self.user, obj_data, project)
         return super().update(obj_data)
 
     @register_service_signal("project_service.delete")
+    @transaction.atomic
     def delete(self, obj_data):
+        authorized_project(self.user, obj_data['id'])
         return super().delete(obj_data)
 
     @register_service_signal('project_service.undo_delete')
+    @transaction.atomic
     def undo_delete(self, obj_data):
+        obj_ = authorized_project(self.user, obj_data['id'], deleted=True)
+        validate_destination(self.user, {}, obj_)
         self.validation_class.validate_undo_delete(obj_data)
-        obj_ = self.OBJECT_TYPE.objects.filter(
-            id=obj_data['id']
-        ).first()
         obj_.is_deleted = False
         obj_.save(user=self.user)
         return {
@@ -56,6 +66,19 @@ class ProjectService(BaseService):
             "message": "Ok",
             "detail": "Undo Delete",
         }
+
+    @transaction.atomic
+    def change_deleted(self, ids, restore=False):
+        # Preflight the entire batch before the first write. Lock in stable order.
+        ids = sorted(set(ids), key=str)
+        for project_id in ids:
+            authorized_project(self.user, project_id, deleted=restore)
+        for project_id in ids:
+            result = (self.undo_delete if restore else self.delete)({'id': project_id})
+            if not result['success']:
+                # BaseService reports validation/save failures rather than raising.
+                transaction.set_rollback(True)
+                return result
 
 
 class ProjectEnrollmentService:
@@ -140,9 +163,7 @@ class ProjectEnrollmentService:
 
         # Lock the project row for the duration so concurrent enrolls of the same
         # project serialize (avoids the read-then-write race on the exclusive-enroll check).
-        project = Project.objects.select_for_update().filter(id=project_id).first()
-        if project is None:
-            raise ValueError(_("Project %(id)s does not exist.") % {'id': project_id})
+        project = authorized_project(self.user, project_id)
         enrollment_model = self.config['enrollment_model']
         fk_field = self.config['fk_field']
 
@@ -158,6 +179,13 @@ class ProjectEnrollmentService:
 
         to_enroll = beneficiary_ids - currently_enrolled
         to_unenroll = currently_enrolled - beneficiary_ids
+
+        changed_ids = to_enroll | to_unenroll
+        visible_ids = set(self.config['beneficiary_model'].get_queryset(None, self.user).filter(
+            pk__in=changed_ids,
+        ).values_list('pk', flat=True))
+        if changed_ids - visible_ids:
+            raise PermissionDenied(_("unauthorized"))
 
         # clean() is skipped under bulk_save; enforce ACTIVE + same-program here.
         self._validate_enrollable(project, to_enroll)
@@ -204,6 +232,11 @@ class ProjectEnrollmentService:
                 'project', *self.config['select_related']
             ).order_by('project__name')
             if already_enrolled_elsewhere:
+                visible_projects = set(Project.get_queryset(None, self.user).filter(
+                    pk__in=already_enrolled_elsewhere.values('project_id'),
+                ).values_list('pk', flat=True))
+                if any(row.project_id not in visible_projects for row in already_enrolled_elsewhere):
+                    raise ValueError(_("Cannot assign beneficiaries: an existing project assignment conflicts."))
                 msg = _(
                     "Cannot assign %(label)s because they are already attached "
                     "to another project in this phase: %(conflicts)s."
@@ -240,7 +273,11 @@ class ProjectEnrollmentService:
     )
     @transaction.atomic
     def bulk_update_time_entries(self, obj_data):
-        time_entries_data = obj_data.get('time_entries', [])
+        require_authenticated(self.user)
+        time_entries_data = [dict(entry) for entry in obj_data.get('time_entries', [])]
+        fields = {'id', 'enrollment_id', 'day_number', 'percent_complete', 'clear'}
+        if any(set(entry) - fields for entry in time_entries_data):
+            raise ValidationError(_("Invalid time-entry fields."))
 
         if not time_entries_data:
             return
@@ -249,18 +286,35 @@ class ProjectEnrollmentService:
         time_entry_model = self.config['time_entry_model']
 
         enrollment_ids = {str(e['enrollment_id']) for e in time_entries_data}
-        enrollments = enrollment_model.objects.filter(
-            id__in=enrollment_ids,
-            is_deleted=False
+        project_ids = set(enrollment_model.objects.filter(
+            pk__in=enrollment_ids, is_deleted=False,
+        ).values_list('project_id', flat=True))
+        locked_projects = set(Project.get_queryset(Project.objects.select_for_update(), self.user).filter(
+            pk__in=project_ids, is_deleted=False,
+        ).order_by('pk').values_list('pk', flat=True))
+        if project_ids - locked_projects:
+            raise PermissionDenied(_("unauthorized"))
+        enrollments = enrollment_model.objects.select_for_update().filter(
+            id__in=enrollment_ids, is_deleted=False, project_id__in=locked_projects,
         ).select_related('project')
 
         enrollment_map = {str(e.id): e for e in enrollments}
         valid_enrollment_ids = set(enrollment_map.keys())
 
-        if invalid_ids := enrollment_ids - valid_enrollment_ids:
-            raise ValueError(
-                _('Invalid enrollment IDs: %(ids)s') % {'ids': invalid_ids}
-            )
+        if enrollment_ids - valid_enrollment_ids:
+            raise PermissionDenied(_("unauthorized"))
+
+        supplied_ids = {entry['id'] for entry in time_entries_data if entry.get('id')}
+        existing_entries = {
+            str(row.pk): row for row in time_entry_model.objects.select_for_update().filter(pk__in=supplied_ids)
+        }
+        for entry in time_entries_data:
+            if entry.get('id'):
+                stored = existing_entries.get(str(entry['id']))
+                if (stored is None or str(stored.enrollment_id) != str(entry['enrollment_id'])
+                        or stored.day_number != entry['day_number']):
+                    raise PermissionDenied(_("unauthorized"))
+                entry['id'] = stored.pk
 
         # Reject duplicate (enrollment, day) pairs within the batch — they would
         # otherwise fight over the same unique row.

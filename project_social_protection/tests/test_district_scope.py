@@ -38,8 +38,7 @@ class Query(ProjectQuery, graphene.ObjectType):
     node = graphene.relay.Node.Field()
 
 
-@override_settings(ROW_SECURITY=True, MODE="dev")
-class ProjectDistrictScopeTest(TestCase):
+class ProjectDistrictScopeFixtures:
     @classmethod
     def setUpTestData(cls):
         cls.admin = create_test_interactive_user(username="project-scope-admin")
@@ -122,6 +121,9 @@ class ProjectDistrictScopeTest(TestCase):
         self.media.enable()
         self.addCleanup(self.media.disable)
 
+
+@override_settings(ROW_SECURITY=True, MODE="dev")
+class ProjectDistrictScopeTest(ProjectDistrictScopeFixtures, TestCase):
     def request(self, user=None):
         req = RequestFactory().get("/graphql")
         req.user = user or self.reader
