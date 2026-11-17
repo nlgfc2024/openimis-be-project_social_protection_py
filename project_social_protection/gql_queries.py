@@ -264,6 +264,8 @@ class ProjectEligibilityFilterMixin:
         project = self._authorized_project(value)
         if project is None:
             return queryset.none()
+        if project.project_type == 'TRAINING':
+            return queryset
         enrollment_model = self._get_enrollment_model()
         beneficiary_field = self._get_beneficiary_field()
 
@@ -272,6 +274,7 @@ class ProjectEligibilityFilterMixin:
         if project.allows_multiple_enrollments:
             enrolled_in_exclusive = enrollment_model.objects.filter(
                 project__allows_multiple_enrollments=False,
+                project__project_type=project.project_type,
                 is_deleted=False,
             ).exclude(
                 project_id=project.id
@@ -279,6 +282,7 @@ class ProjectEligibilityFilterMixin:
             return queryset.exclude(id__in=enrolled_in_exclusive)
         enrolled_elsewhere = enrollment_model.objects.filter(
             is_deleted=False,
+            project__project_type=project.project_type,
         ).exclude(
             project_id=project.id
         ).values_list(f'{beneficiary_field}_id', flat=True)
@@ -322,6 +326,17 @@ class ProjectEligibleBeneficiaryFilter(
                if k in ("id",)},
             "is_deleted": ["exact"],
         }
+
+    group_code = django_filters.CharFilter(method='filter_group_code')
+
+    def filter_group_code(self, queryset, name, value):
+        # Narrow the authorized beneficiary queryset; never create beneficiaries.
+        from individual.models import GroupIndividual
+        members = GroupIndividual.objects.filter(
+            group__code=value, group__is_deleted=False, is_deleted=False,
+            individual__is_deleted=False,
+        ).values_list('individual_id', flat=True)
+        return queryset.filter(individual_id__in=members)
 
     def _get_enrollment_model(self):
         return BeneficiaryProjectEnrollment

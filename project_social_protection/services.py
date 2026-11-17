@@ -159,39 +159,7 @@ class ProjectEnrollmentService:
         if project is None:
             raise ValueError(_("Project %(id)s does not exist.") % {'id': project_id})
         if project.project_type == 'TRAINING' and self.enrollment_type == self.GROUP:
-            self._validate_enrollable(project, beneficiary_ids)
-            from individual.models import GroupIndividual
-            group_ids = GroupBeneficiary.objects.filter(
-                id__in=beneficiary_ids, is_deleted=False,
-            ).values_list('group_id', flat=True)
-            member_ids = set(GroupIndividual.objects.filter(
-                group_id__in=group_ids, is_deleted=False, individual__is_deleted=False,
-            ).values_list('individual_id', flat=True))
-            # Lock the Phase as well: concurrent sessions must not create duplicate
-            # individual Beneficiary records for the same group members.
-            from social_protection.models import BenefitPlan
-            BenefitPlan.objects.select_for_update().get(id=project.benefit_plan_id)
-            beneficiaries = list(Beneficiary.objects.filter(
-                benefit_plan_id=project.benefit_plan_id,
-                individual_id__in=member_ids, is_deleted=False,
-            ))
-            if any(b.status != BeneficiaryStatus.ACTIVE for b in beneficiaries):
-                raise ValueError("Training group members must have active beneficiary records.")
-            missing = member_ids - {b.individual_id for b in beneficiaries}
-            # Group membership is the authorized source of individual eligibility
-            # for a TRAINING session, including GROUP-type Phases.
-            Beneficiary.bulk_save([
-                {'individual_id': member_id, 'benefit_plan_id': project.benefit_plan_id,
-                 'status': BeneficiaryStatus.ACTIVE}
-                for member_id in missing
-            ], self.user)
-            member_beneficiary_ids = list(Beneficiary.objects.filter(
-                benefit_plan_id=project.benefit_plan_id, individual_id__in=member_ids,
-                status=BeneficiaryStatus.ACTIVE, is_deleted=False,
-            ).values_list('id', flat=True))
-            return ProjectEnrollmentService(self.user, self.INDIVIDUAL).enroll_project({
-                'project_id': project.id, 'ids': member_beneficiary_ids,
-            })
+            raise ValueError(_("Training sessions enroll existing individual beneficiaries only."))
         enrollment_model = self.config['enrollment_model']
         fk_field = self.config['fk_field']
 
@@ -249,6 +217,7 @@ class ProjectEnrollmentService:
             already_enrolled_elsewhere = enrollment_model.objects.filter(
                 **{f'{fk_field}__in': to_enroll},
                 is_deleted=False,
+                project__project_type=project.project_type,
             ).exclude(
                 project_id=project_id
             ).select_related(

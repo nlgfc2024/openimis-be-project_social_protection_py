@@ -90,16 +90,15 @@ class TrainingDatabaseTests(TestCase):
         from social_protection.tests.test_helpers import create_group_with_individual
         cls.user = create_test_interactive_user(username='training_test_admin')
         cls.plan = create_benefit_plan(username=cls.user.username)
-        cls.plan.type = 'GROUP'
+        cls.plan.type = 'INDIVIDUAL'
         cls.plan.save(username=cls.user.username)
         cls.project = create_project('Training session', cls.plan, cls.user.username,
                                      project_type='TRAINING', allows_multiple_enrollments=True)
         cls.member, cls.group, _ = create_group_with_individual(cls.user.username)
-        cls.group_beneficiary = GroupBeneficiary(group=cls.group, benefit_plan=cls.plan,
-                                                 status=BeneficiaryStatus.ACTIVE)
-        # A group Phase supplies eligibility; individual participant records are
-        # materialized by the Training assignment service.
-        cls.group_beneficiary.save(username=cls.user.username)
+        from social_protection.models import Beneficiary
+        cls.beneficiary = Beneficiary(individual=cls.member, benefit_plan=cls.plan,
+                                      status=BeneficiaryStatus.ACTIVE)
+        cls.beneficiary.save(username=cls.user.username)
 
     def test_training_mutations_preserve_manual_name_and_use_activity_duration(self):
         from project_social_protection.models import Project
@@ -147,8 +146,8 @@ class TrainingDatabaseTests(TestCase):
         self.assertTrue(result['success'], result)
         session = Project.objects.get(name='No target session')
         self.assertIsNone(session.target_beneficiaries)
-        ProjectEnrollmentService(self.user, 'GROUP').enroll_project({
-            'project_id': session.id, 'ids': [self.group_beneficiary.id],
+        ProjectEnrollmentService(self.user, 'INDIVIDUAL').enroll_project({
+            'project_id': session.id, 'ids': [self.beneficiary.id],
         })
         self.assertEqual(BeneficiaryProjectEnrollment.objects.filter(project=session, is_deleted=False).count(), 1)
 
@@ -168,30 +167,68 @@ class TrainingDatabaseTests(TestCase):
         self.assertEqual(created.project_type, 'WORK')
         self.assertFalse(created.allows_multiple_enrollments)
 
-    def test_group_assignment_creates_individual_records_and_allows_second_session(self):
+    def test_training_rejects_group_enrollment_without_creating_beneficiaries(self):
         from project_social_protection.services import ProjectEnrollmentService
+        from social_protection.models import Beneficiary
         from project_social_protection.models import BeneficiaryProjectEnrollment, GroupBeneficiaryProjectEnrollment
-        from social_protection.models import Beneficiary
-        from project_social_protection.tests.test_helpers import create_project
-        service = ProjectEnrollmentService(self.user, 'GROUP')
-        service.enroll_project({'project_id': self.project.id, 'ids': [self.group_beneficiary.id]})
-        beneficiary = Beneficiary.objects.get(individual=self.member, benefit_plan=self.plan, is_deleted=False)
-        self.assertTrue(BeneficiaryProjectEnrollment.objects.filter(project=self.project, beneficiary=beneficiary, is_deleted=False).exists())
+        count = Beneficiary.objects.count()
+        with self.assertRaisesRegex(ValueError, 'existing individual beneficiaries'):
+            ProjectEnrollmentService(self.user, 'GROUP').enroll_project({
+                'project_id': self.project.id, 'ids': [],
+            })
+        self.assertEqual(Beneficiary.objects.count(), count)
+        self.assertFalse(BeneficiaryProjectEnrollment.objects.filter(project=self.project).exists())
         self.assertFalse(GroupBeneficiaryProjectEnrollment.objects.filter(project=self.project).exists())
-        second = create_project('Second session', self.plan, self.user.username, project_type='TRAINING')
-        service.enroll_project({'project_id': second.id, 'ids': [self.group_beneficiary.id]})
-        self.assertEqual(Beneficiary.objects.filter(individual=self.member, benefit_plan=self.plan).count(), 1)
-        self.assertTrue(BeneficiaryProjectEnrollment.objects.filter(project=second, beneficiary=beneficiary, is_deleted=False).exists())
 
-    def test_training_group_assignment_can_exceed_target(self):
+    def test_existing_participant_can_attend_overlapping_training_sessions(self):
         from project_social_protection.services import ProjectEnrollmentService
-        from social_protection.models import Beneficiary
-        from project_social_protection.models import Project
+        from project_social_protection.models import BeneficiaryProjectEnrollment
+        from project_social_protection.tests.test_helpers import create_project
+        service = ProjectEnrollmentService(self.user, 'INDIVIDUAL')
+        self.project.session_start_date = date(2026, 5, 1)
+        self.project.session_end_date = date(2026, 5, 10)
+        self.project.save(username=self.user.username)
+        second = create_project('Second session', self.plan, self.user.username,
+                                project_type='TRAINING', session_start_date=date(2026, 5, 5),
+                                session_end_date=date(2026, 5, 15))
+        for session in (self.project, second):
+            service.enroll_project({'project_id': session.id, 'ids': [self.beneficiary.id]})
+        self.assertEqual(BeneficiaryProjectEnrollment.objects.filter(
+            beneficiary=self.beneficiary, is_deleted=False).count(), 2)
+
+    def test_training_individual_assignment_can_exceed_target(self):
+        from project_social_protection.services import ProjectEnrollmentService
+        from project_social_protection.models import Project, BeneficiaryProjectEnrollment
         Project.objects.filter(id=self.project.id).update(target_beneficiaries=0)
-        ProjectEnrollmentService(self.user, 'GROUP').enroll_project({
-            'project_id': self.project.id, 'ids': [self.group_beneficiary.id],
+        ProjectEnrollmentService(self.user, 'INDIVIDUAL').enroll_project({
+            'project_id': self.project.id, 'ids': [self.beneficiary.id],
         })
-        self.assertTrue(Beneficiary.objects.filter(individual=self.member, benefit_plan=self.plan).exists())
+        self.assertTrue(BeneficiaryProjectEnrollment.objects.filter(
+            project=self.project, beneficiary=self.beneficiary, is_deleted=False).exists())
+
+    def test_group_filter_returns_only_existing_active_members(self):
+        from project_social_protection.gql_queries import ProjectEligibleBeneficiaryFilter
+        from social_protection.models import Beneficiary, BeneficiaryStatus
+        query = Beneficiary.objects.filter(status=BeneficiaryStatus.ACTIVE, is_deleted=False)
+        result = ProjectEligibleBeneficiaryFilter().filter_group_code(query, 'group_code', self.group.code)
+        self.assertEqual(list(result.values_list('id', flat=True)), [self.beneficiary.id])
+        self.assertFalse(ProjectEligibleBeneficiaryFilter().filter_group_code(query, 'group_code', 'missing').exists())
+        self.assertFalse(ProjectEligibleBeneficiaryFilter().filter_group_code(
+            query.none(), 'group_code', self.group.code).exists())
+        Beneficiary.objects.filter(id=self.beneficiary.id).update(status=BeneficiaryStatus.SUSPENDED)
+        self.assertFalse(ProjectEligibleBeneficiaryFilter().filter_group_code(
+            query, 'group_code', self.group.code).exists())
+
+    def test_work_exclusivity_only_conflicts_with_other_work_projects(self):
+        from project_social_protection.services import ProjectEnrollmentService
+        from project_social_protection.tests.test_helpers import create_project
+        service = ProjectEnrollmentService(self.user, 'INDIVIDUAL')
+        service.enroll_project({'project_id': self.project.id, 'ids': [self.beneficiary.id]})
+        work = create_project('Work assignment', self.plan, self.user.username)
+        service.enroll_project({'project_id': work.id, 'ids': [self.beneficiary.id]})
+        other_work = create_project('Other work assignment', self.plan, self.user.username)
+        with self.assertRaisesRegex(ValueError, 'already attached'):
+            service.enroll_project({'project_id': other_work.id, 'ids': [self.beneficiary.id]})
 
     def test_training_target_can_exceed_work_maximum(self):
         from project_social_protection.models import Project

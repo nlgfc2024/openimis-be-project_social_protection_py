@@ -53,7 +53,8 @@ In Django Admin, edit the **backend** ModuleConfiguration for
 The default is `WORK`. Only these two values are accepted; invalid reloads
 retain the previous configuration. Keep this backend record unexposed.
 
-Apply migration `0007_training_sessions` before enabling this code. It marks
+Apply migrations `0007_training_sessions` and `0008_optional_training_target`
+before enabling this code. Migration 0007 marks
 existing projects and historical rows as WORK. New projects receive the configured
 type in the service; changing deployment settings never changes existing records.
 GraphQL exposes `projectType` read-only, and accepts optional `sessionStartDate`
@@ -64,7 +65,7 @@ Target beneficiaries is optional for TRAINING; omit it or send null for no enrol
 cap. A supplied Training target is informational and has no configured maximum;
 it does not cap enrollment. WORK continues to require a target.
 Migration `0008_optional_training_target` enables
-nullable targets on live and historical projects.
+nullable IntegerField targets on live and historical projects.
 
 Training names must be nonblank,
 at most 255 characters, and unique among live projects in the Phase. WORK keeps
@@ -73,14 +74,19 @@ its generated names. Set Activity JSON in Django Admin to, for example,
 An explicit duration wins; durations must be integers from 1 through 32767.
 Activity GraphQL also exposes `defaultWorkingDays`.
 
-TRAINING always permits participation in multiple sessions. Group assignment
-expands current, nondeleted group membership into individual enrollments, creating
-missing active individual Beneficiary records in the same Phase from active group
-eligibility. Existing inactive individual records are rejected rather than
-reactivated. Members are deduplicated; assigned totals count people. Record
-creation and enrollment are atomic, including rollback if enrollment fails.
-As with the existing assignment API, the submitted list replaces the session's
-individual participant set. WORK keeps its existing group assignment behavior.
+TRAINING always permits participation in multiple sessions, including overlapping
+periods: a participant may attend several trainings within the same period.
+Training uses individual plans and existing ACTIVE individual beneficiaries;
+assignment never creates or approves beneficiary records. Group enrollment is
+rejected for Training. The frontend household-code convenience queries existing
+active individual beneficiaries through the authorized Project query, then adds
+their IDs to the complete individual selection. Missing records stay missing. The individual assignment API accepts the complete desired
+participant set, so clients must retain previously selected participants when
+adding more. WORK keeps its existing group assignment behavior and exclusive enrollment
+checks against other WORK projects.
+
+Partial updates use the stored Phase when checking name uniqueness. This also
+fixes WORK updates that omit benefit_plan_id.
 
 The frontend must separately support manual Training names and the new date and
 duration fields. No UI or deployment configuration is changed by this module.
