@@ -26,6 +26,10 @@ def authorized_project(user, project_id, deleted=False):
     return project
 
 
+def invalid_hotspot_error():
+    return ValidationError(_("Invalid project hotspot."))
+
+
 def _related(data, field, model, project=None):
     if field in data:
         value = data[field]
@@ -40,6 +44,8 @@ def _related(data, field, model, project=None):
         return None
     value = model.objects.filter(pk=pk, validity_to__isnull=True).first()
     if value is None:
+        if model is Hotspot:
+            raise invalid_hotspot_error()
         raise ValidationError(_("Invalid project location, micro-catchment or hotspot."))
     return value
 
@@ -73,4 +79,4 @@ def validate_destination(user, data, project=None):
                 pk=hotspot.micro_catchment_id, validity_to__isnull=True, district=district,
             ).first()
             if catchment is None or (micro_catchment and catchment.pk != micro_catchment.pk):
-                raise ValidationError(_("Hotspot must match the project's district and micro-catchment."))
+                raise invalid_hotspot_error()

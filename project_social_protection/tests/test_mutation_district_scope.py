@@ -397,3 +397,50 @@ class ProjectMutationDistrictScopeTest(ProjectDistrictScopeFixtures, TestCase):
                 self.service(group).enroll_project({'project_id': projects[0].pk, 'ids': []})
                 enrollments[0].refresh_from_db()
                 self.assertTrue(enrollments[0].is_deleted)
+
+    def test_hotspot_errors_conceal_existence_in_services_and_mutations(self):
+        from core.utils import TimeUtils
+        valid_catchment = self.catchment(self.a, 'HOTSPOT-VALID')
+        foreign_catchment = self.catchment(self.b, 'HOTSPOT-FOREIGN')
+        other_catchment = self.catchment(self.a, 'HOTSPOT-OTHER')
+        hotspots = []
+        for suffix, catchment in [('FOREIGN', foreign_catchment), ('OTHER', other_catchment),
+                                  ('INACTIVE', valid_catchment)]:
+            hotspot = Hotspot.objects.create(
+                code=f'ERROR-{suffix}', name=f'Hidden hotspot {suffix}',
+                micro_catchment=catchment, audit_user_id=-1,
+            )
+            hotspots.append(hotspot)
+        hotspots[-1].validity_to = TimeUtils.now()
+        hotspots[-1].save()
+        ids = [2147483647] + [hotspot.pk for hotspot in hotspots]
+        before = Project.objects.count()
+        history_before = self.projects[0].history.count()
+        for operation in ['service_create', 'service_update', 'mutation_create', 'mutation_update']:
+            messages = []
+            for hotspot_id in ids:
+                with self.subTest(operation=operation, hotspot_id=hotspot_id), self.assertRaises(ValidationError) as error:
+                    if operation == 'service_create':
+                        ProjectService(self.reader).create(self.payload(
+                            micro_catchment=valid_catchment, hotspot_id=hotspot_id,
+                        ))
+                    elif operation == 'service_update':
+                        ProjectService(self.reader).update({
+                            'id': self.projects[0].pk, 'micro_catchment': valid_catchment, 'hotspot_id': hotspot_id,
+                        })
+                    elif operation == 'mutation_create':
+                        CreateProjectMutation._mutate(
+                            self.reader, benefit_plan_id=self.plan.pk, activity_id=self.activity.pk,
+                            location_id=self.villages[0].uuid, micro_catchment_id=valid_catchment.pk,
+                            hotspot_id=hotspot_id, target_beneficiaries=5, working_days=5,
+                        )
+                    else:
+                        UpdateProjectMutation._mutate(
+                            self.reader, id=self.projects[0].pk, micro_catchment_id=valid_catchment.pk,
+                            hotspot_id=hotspot_id,
+                        )
+                messages.append(error.exception.messages)
+            self.assertTrue(all(message == messages[0] for message in messages))
+            self.assertEqual(messages[0], ['Invalid project hotspot.'])
+        self.assertEqual(Project.objects.count(), before)
+        self.assertEqual(self.projects[0].history.count(), history_before)

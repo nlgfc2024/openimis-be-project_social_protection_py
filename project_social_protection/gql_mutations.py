@@ -15,7 +15,9 @@ from location.models import Location, Hotspot, MicroCatchment
 from social_protection.models import BenefitPlan, Beneficiary, GroupBeneficiary
 
 from project_social_protection.apps import ProjectSocialProtectionConfig
-from project_social_protection.mutation_scope import authorized_project, validate_destination
+from project_social_protection.mutation_scope import (
+    authorized_project, invalid_hotspot_error, validate_destination,
+)
 from project_social_protection.models import (
     Project, ProjectMutation, Activity, ProjectStatus,
     BeneficiaryProjectTimeEntry, GroupBeneficiaryProjectTimeEntry,
@@ -90,7 +92,7 @@ def _resolve_malawi_fields(data):
         hotspot_id = data.pop('hotspot_id')
         hotspot = Hotspot.objects.filter(id=hotspot_id).first() if hotspot_id else None
         if hotspot_id and hotspot is None:
-            raise ValidationError(_("Hotspot %(id)s does not exist.") % {'id': hotspot_id})
+            raise invalid_hotspot_error()
         data['hotspot'] = hotspot
     if 'foreman_id' in data:
         foreman_id = data.pop('foreman_id')
