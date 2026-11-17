@@ -38,6 +38,9 @@ class ProjectStatus(models.TextChoices):
 
 
 class Project(core_models.HistoryBusinessModel):
+    project_type = models.CharField(max_length=8, choices=[('WORK', 'WORK'), ('TRAINING', 'TRAINING')], default='WORK')
+    session_start_date = models.DateField(null=True, blank=True)
+    session_end_date = models.DateField(null=True, blank=True)
     benefit_plan = models.ForeignKey('social_protection.BenefitPlan', models.DO_NOTHING, null=False)
     name = models.CharField(max_length=255, null=False)
     code = models.CharField(max_length=32, null=True, blank=True)
@@ -49,7 +52,7 @@ class Project(core_models.HistoryBusinessModel):
     )
     activity = models.ForeignKey(Activity, models.DO_NOTHING, null=False)
     location = models.ForeignKey('location.Location', models.DO_NOTHING, null=False)
-    target_beneficiaries = models.SmallIntegerField(null=False)
+    target_beneficiaries = models.IntegerField(null=True, blank=True)
     working_days = models.SmallIntegerField(null=False)
     allows_multiple_enrollments = models.BooleanField(default=False)
 

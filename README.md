@@ -46,3 +46,41 @@ policy. History follows the current parent project: its authorized users can see
 the complete trail, including records created before a district transfer and
 history for a permitted soft-deleted parent. Historical snapshot locations do not
 add another restriction.
+# Training sessions
+
+In Django Admin, edit the **backend** ModuleConfiguration for
+`project_social_protection` and add `"project_type": "TRAINING"` to its JSON.
+The default is `WORK`. Only these two values are accepted; invalid reloads
+retain the previous configuration. Keep this backend record unexposed.
+
+Apply migration `0007_training_sessions` before enabling this code. It marks
+existing projects and historical rows as WORK. New projects receive the configured
+type in the service; changing deployment settings never changes existing records.
+GraphQL exposes `projectType` read-only, and accepts optional `sessionStartDate`
+and `sessionEndDate` in create/update inputs (end must not precede start).
+
+TRAINING requires a manually entered name and a location.
+Target beneficiaries is optional for TRAINING; omit it or send null for no enrollment
+cap. A supplied Training target is informational and has no configured maximum;
+it does not cap enrollment. WORK continues to require a target.
+Migration `0008_optional_training_target` enables
+nullable targets on live and historical projects.
+
+Training names must be nonblank,
+at most 255 characters, and unique among live projects in the Phase. WORK keeps
+its generated names. Set Activity JSON in Django Admin to, for example,
+`{"default_working_days": 5}` to seed a new Training's `workingDays` when omitted.
+An explicit duration wins; durations must be integers from 1 through 32767.
+Activity GraphQL also exposes `defaultWorkingDays`.
+
+TRAINING always permits participation in multiple sessions. Group assignment
+expands current, nondeleted group membership into individual enrollments, creating
+missing active individual Beneficiary records in the same Phase from active group
+eligibility. Existing inactive individual records are rejected rather than
+reactivated. Members are deduplicated; assigned totals count people. Record
+creation and enrollment are atomic, including rollback if enrollment fails.
+As with the existing assignment API, the submitted list replaces the session's
+individual participant set. WORK keeps its existing group assignment behavior.
+
+The frontend must separately support manual Training names and the new date and
+duration fields. No UI or deployment configuration is changed by this module.

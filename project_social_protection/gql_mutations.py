@@ -120,8 +120,10 @@ class CreateProjectInputType(OpenIMISMutation.Input):
     name = graphene.String(required=False)
     activity_id = graphene.ID(required=True)
     location_id = graphene.ID(required=True)
-    target_beneficiaries = graphene.Int(required=True)
-    working_days = graphene.Int(required=True)
+    target_beneficiaries = graphene.Int(required=False)
+    working_days = graphene.Int(required=False)
+    session_start_date = graphene.Date(required=False)
+    session_end_date = graphene.Date(required=False)
     allows_multiple_enrollments = graphene.Boolean(required=False)
     micro_catchment_id = graphene.ID(required=False)
     hotspot_id = graphene.ID(required=False)
@@ -162,10 +164,11 @@ class CreateProjectMutation(
         data["status"] = ProjectStatus.PREPARATION
         _resolve_malawi_fields(data)
         # Name is derived, not client-supplied.
-        data["name"] = generate_project_name(
-            data.get("hotspot"), data["activity"], data["benefit_plan"],
-            data.get("known_place"),
-        )
+        if ProjectSocialProtectionConfig.project_type == 'WORK':
+            data["name"] = generate_project_name(
+                data.get("hotspot"), data["activity"], data["benefit_plan"],
+                data.get("known_place"),
+            )
 
         service = ProjectService(user)
         if ProjectSocialProtectionConfig.project_code_enabled:
@@ -228,6 +231,8 @@ class CreateProjectMutation(
 
 
 class UpdateProjectInputType(OpenIMISMutation.Input):
+    session_start_date = graphene.Date(required=False)
+    session_end_date = graphene.Date(required=False)
     id = graphene.UUID(required=True)
     benefit_plan_id = graphene.ID(required=False)
     name = graphene.String(required=False)
@@ -266,7 +271,9 @@ class UpdateProjectMutation(
         if "client_mutation_label" in data:
             data.pop("client_mutation_label")
         # Name is MIS-derived; never let a client overwrite it on update.
-        data.pop("name", None)
+        project = Project.objects.get(id=data["id"])
+        if project.project_type == 'WORK':
+            data.pop("name", None)
 
         name_driving_fields = {
             "benefit_plan_id", "activity_id", "hotspot_id", "known_place",
@@ -288,7 +295,7 @@ class UpdateProjectMutation(
         # Rebuild the generated name when any name-driving field changes.  Values that
         # are not in the patch continue to come from the stored project.
         _resolve_malawi_fields(data)
-        if rebuild_name:
+        if rebuild_name and project.project_type == 'WORK':
             data["name"] = generate_project_name(
                 data.get("hotspot", project.hotspot),
                 data.get("activity", project.activity),

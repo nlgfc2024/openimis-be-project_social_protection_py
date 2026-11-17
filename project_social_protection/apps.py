@@ -2,8 +2,9 @@ import logging
 import json
 
 from django.apps import AppConfig
+from django.core.exceptions import ValidationError
 
-from core.module_config_registry import register_reloader
+from core.module_config_registry import register_reloader, register_validator
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,7 @@ DEFAULT_MAX_TARGET_BENEFICIARIES = 200
 # Project / Activity rights keep the SAME numeric codes they had under
 # social_protection so existing role grants continue to work.
 DEFAULT_CONFIG = {
+    "project_type": "WORK",
     "gql_activity_search_perms": ["208001"],
     "gql_project_search_perms": ["209001"],
     "gql_project_create_perms": ["209002"],
@@ -41,6 +43,7 @@ class ProjectSocialProtectionConfig(AppConfig):
     gql_project_beneficiary_enroll_perms = None
     gql_project_beneficiary_time_entry_perms = None
     max_target_beneficiaries = None
+    project_type = "WORK"
     project_code_enabled = None
     project_code_district_digits = None
     project_code_ta_digits = None
@@ -52,15 +55,28 @@ class ProjectSocialProtectionConfig(AppConfig):
         cfg = ModuleConfiguration.get_or_default(self.name, DEFAULT_CONFIG)
         self.__load_config(cfg)
         register_reloader(self.name, self._reload_module_config)
+        register_validator(self.name, self.validate_configuration)
+
+    @staticmethod
+    def validate_configuration(instance):
+        config = json.loads(instance.config)
+        if config.get("project_type", "WORK") not in ("WORK", "TRAINING"):
+            raise ValidationError({"config": "project_type must be WORK or TRAINING."})
 
     def _reload_module_config(self, instance):
-        db_config = json.loads(instance.config)
-        config = {**DEFAULT_CONFIG, **db_config}
-        self.__load_config(config)
+        try:
+            db_config = json.loads(instance.config)
+            config = {**DEFAULT_CONFIG, **db_config}
+            self.__load_config(config)
+        except (ValueError, ValidationError):
+            logger.exception("Rejected invalid project configuration; keeping previous settings")
+            return
         logger.info(f"Reloaded app configs for {self.name} module")
 
     @classmethod
     def __load_config(cls, cfg):
+        if cfg.get("project_type", "WORK") not in ("WORK", "TRAINING"):
+            raise ValidationError("project_type must be WORK or TRAINING.")
         for field in cfg:
             if hasattr(ProjectSocialProtectionConfig, field):
                 setattr(ProjectSocialProtectionConfig, field, cfg[field])

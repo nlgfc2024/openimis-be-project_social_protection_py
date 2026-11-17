@@ -15,7 +15,7 @@ class ActivityAdmin(admin.ModelAdmin):
     readonly_fields = [
         'user_created', 'date_created', 'user_updated', 'date_updated', 'version'
     ]
-    exclude = ['date_valid_from', 'date_valid_to', 'json_ext', 'replacement_uuid']
+    exclude = ['date_valid_from', 'date_valid_to', 'replacement_uuid']
     search_fields = ['name']
 
     def save_model(self, request, obj, form, change):

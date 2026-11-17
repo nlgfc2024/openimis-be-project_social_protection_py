@@ -40,6 +40,14 @@ from project_social_protection.validation import validate_project_unique_name
 
 
 class Query(ExportableProjectQueryMixin, graphene.ObjectType):
+    project_deployment_type = graphene.String(required=True)
+
+    def resolve_project_deployment_type(self, info):
+        user = info.context.user
+        if isinstance(user, AnonymousUser) or not user.id:
+            raise PermissionDenied(_("unauthorized"))
+        return ProjectSocialProtectionConfig.project_type
+
     activity = OrderedDjangoFilterConnectionField(
         ActivityGQLType,
         orderBy=graphene.List(of_type=graphene.String),

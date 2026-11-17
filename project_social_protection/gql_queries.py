@@ -107,6 +107,11 @@ class ActivityFilter(django_filters.FilterSet):
 
 
 class ActivityGQLType(DjangoObjectType):
+    default_working_days = graphene.Int()
+
+    def resolve_default_working_days(self, info):
+        return (self.json_ext or {}).get('default_working_days')
+
     uuid = graphene.String(source='uuid')
 
     class Meta:
@@ -141,6 +146,7 @@ class ProjectFilter(django_filters.FilterSet):
 
 
 class ProjectGQLType(ProjectReadScopeMixin, DjangoObjectType):
+    project_type = graphene.String()
     uuid = graphene.String(source='uuid')
     code = graphene.String()
     assigned_beneficiaries_count = graphene.Int()
@@ -186,6 +192,9 @@ class ProjectGQLType(ProjectReadScopeMixin, DjangoObjectType):
             'target_beneficiaries',
             'working_days',
             'allows_multiple_enrollments',
+            'project_type',
+            'session_start_date',
+            'session_end_date',
             'micro_catchment',
             'hotspot',
             'known_place',

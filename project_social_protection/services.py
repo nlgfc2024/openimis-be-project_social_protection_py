@@ -21,6 +21,7 @@ from project_social_protection.models import (
     GroupBeneficiaryProjectEnrollment,
 )
 from project_social_protection.validation import ProjectValidation
+from project_social_protection.apps import ProjectSocialProtectionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +34,24 @@ class ProjectService(BaseService):
 
     @register_service_signal("project_service.create")
     def create(self, obj_data):
+        obj_data = dict(obj_data)
+        obj_data['project_type'] = ProjectSocialProtectionConfig.project_type
+        obj_data.setdefault('working_days', None)
+        if obj_data['project_type'] == 'TRAINING':
+            obj_data['allows_multiple_enrollments'] = True
+            if obj_data.get('working_days') is None:
+                activity = obj_data.get('activity')
+                duration = (getattr(activity, 'json_ext', None) or {}).get('default_working_days')
+                obj_data['working_days'] = duration
         return super().create(obj_data)
 
     @register_service_signal("project_service.update")
     def update(self, obj_data):
+        obj_data = dict(obj_data)
+        obj_data.pop('project_type', None)
+        project = Project.objects.get(id=obj_data['id'])
+        if project.project_type == 'TRAINING':
+            obj_data['allows_multiple_enrollments'] = True
         return super().update(obj_data)
 
     @register_service_signal("project_service.delete")
@@ -143,6 +158,40 @@ class ProjectEnrollmentService:
         project = Project.objects.select_for_update().filter(id=project_id).first()
         if project is None:
             raise ValueError(_("Project %(id)s does not exist.") % {'id': project_id})
+        if project.project_type == 'TRAINING' and self.enrollment_type == self.GROUP:
+            self._validate_enrollable(project, beneficiary_ids)
+            from individual.models import GroupIndividual
+            group_ids = GroupBeneficiary.objects.filter(
+                id__in=beneficiary_ids, is_deleted=False,
+            ).values_list('group_id', flat=True)
+            member_ids = set(GroupIndividual.objects.filter(
+                group_id__in=group_ids, is_deleted=False, individual__is_deleted=False,
+            ).values_list('individual_id', flat=True))
+            # Lock the Phase as well: concurrent sessions must not create duplicate
+            # individual Beneficiary records for the same group members.
+            from social_protection.models import BenefitPlan
+            BenefitPlan.objects.select_for_update().get(id=project.benefit_plan_id)
+            beneficiaries = list(Beneficiary.objects.filter(
+                benefit_plan_id=project.benefit_plan_id,
+                individual_id__in=member_ids, is_deleted=False,
+            ))
+            if any(b.status != BeneficiaryStatus.ACTIVE for b in beneficiaries):
+                raise ValueError("Training group members must have active beneficiary records.")
+            missing = member_ids - {b.individual_id for b in beneficiaries}
+            # Group membership is the authorized source of individual eligibility
+            # for a TRAINING session, including GROUP-type Phases.
+            Beneficiary.bulk_save([
+                {'individual_id': member_id, 'benefit_plan_id': project.benefit_plan_id,
+                 'status': BeneficiaryStatus.ACTIVE}
+                for member_id in missing
+            ], self.user)
+            member_beneficiary_ids = list(Beneficiary.objects.filter(
+                benefit_plan_id=project.benefit_plan_id, individual_id__in=member_ids,
+                status=BeneficiaryStatus.ACTIVE, is_deleted=False,
+            ).values_list('id', flat=True))
+            return ProjectEnrollmentService(self.user, self.INDIVIDUAL).enroll_project({
+                'project_id': project.id, 'ids': member_beneficiary_ids,
+            })
         enrollment_model = self.config['enrollment_model']
         fk_field = self.config['fk_field']
 
@@ -182,7 +231,9 @@ class ProjectEnrollmentService:
         # If a project is already over target, allow mutations that reduce
         # assigned beneficiaries so users can recover back under the cap.
         if (
-            total_assigned_after_change > project.target_beneficiaries
+            project.project_type != 'TRAINING'
+            and project.target_beneficiaries is not None
+            and total_assigned_after_change > project.target_beneficiaries
             and total_assigned_after_change > total_assigned_before_change
         ):
             msg = _(
@@ -194,7 +245,7 @@ class ProjectEnrollmentService:
             }
             raise ValueError(msg)
 
-        if not project.allows_multiple_enrollments and to_enroll:
+        if project.project_type != 'TRAINING' and not project.allows_multiple_enrollments and to_enroll:
             already_enrolled_elsewhere = enrollment_model.objects.filter(
                 **{f'{fk_field}__in': to_enroll},
                 is_deleted=False,
