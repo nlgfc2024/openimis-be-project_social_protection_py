@@ -619,7 +619,7 @@ class ProjectsGQLTest(PatchedOpenIMISGraphQLTestCase):
 
         self.assertResponseNoErrors(response)
         data = json.loads(response.content)['data']['undoDeleteProject']
-        self.assert_mutation_error(data['internalId'], self.user_token, "does not exist")
+        self.assert_mutation_error(data['internalId'], self.user_token, _("unauthorized"))
 
     def test_undo_delete_project_mutation_duplicate_name(self):
         deleted = Project(
