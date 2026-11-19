@@ -122,14 +122,15 @@ def generate_project_name(hotspot, activity, benefit_plan, known_place):
 
 
 class CreateProjectInputType(OpenIMISMutation.Input):
+    module_ids = graphene.List(graphene.NonNull(graphene.UUID), required=False)
     session_start_date = graphene.Date(required=False)
     session_end_date = graphene.Date(required=False)
     benefit_plan_id = graphene.ID(required=True)
     name = graphene.String(required=False)
-    activity_id = graphene.ID(required=True)
+    activity_id = graphene.ID(required=False)
     location_id = graphene.ID(required=True)
     target_beneficiaries = graphene.Int(required=True)
-    working_days = graphene.Int(required=True)
+    working_days = graphene.Int(required=False)
     allows_multiple_enrollments = graphene.Boolean(required=False)
     micro_catchment_id = graphene.ID(required=False)
     hotspot_id = graphene.ID(required=False)
@@ -163,7 +164,8 @@ class CreateProjectMutation(
         data["benefit_plan"] = BenefitPlan.objects.get(
             id=data.pop("benefit_plan_id")
         )
-        data["activity"] = Activity.objects.get(id=data.pop("activity_id"))
+        if data.get('activity_id'):
+            data['activity'] = Activity.objects.get(id=data.pop('activity_id'))
         data["location"] = Location.objects.get(uuid=data.pop("location_id"))
         validate_destination(user, {"location": data["location"]})
         # Creation always starts in preparation, regardless of a client-provided
@@ -172,7 +174,7 @@ class CreateProjectMutation(
         _resolve_malawi_fields(data)
         if ProjectSocialProtectionConfig.project_type == 'WORK':
             data["name"] = generate_project_name(
-                data.get("hotspot"), data["activity"], data["benefit_plan"],
+                data.get("hotspot"), data.get("activity"), data["benefit_plan"],
                 data.get("known_place"),
             )
 
@@ -237,6 +239,7 @@ class CreateProjectMutation(
 
 
 class UpdateProjectInputType(OpenIMISMutation.Input):
+    module_ids = graphene.List(graphene.NonNull(graphene.UUID), required=False)
     session_start_date = graphene.Date(required=False)
     session_end_date = graphene.Date(required=False)
     id = graphene.UUID(required=True)
@@ -292,7 +295,8 @@ class UpdateProjectMutation(
                 id=data.pop("benefit_plan_id")
             )
         if 'activity_id' in data:
-            data["activity"] = Activity.objects.get(id=data.pop("activity_id"))
+            activity_id = data.pop('activity_id')
+            data['activity'] = Activity.objects.get(id=activity_id) if activity_id else None
         if 'location_id' in data:
             data["location"] = Location.objects.get(
                 uuid=data.pop("location_id")

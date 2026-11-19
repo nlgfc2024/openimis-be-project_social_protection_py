@@ -14,6 +14,28 @@ rather than creating new ones.
 
 ## Django app
 
+### Training topic snapshots (issue #130)
+
+Training create/update accepts ordered `moduleIds` and does not accept work
+`activityId` or manually entered `workingDays`. Omission on create selects all
+live modules of the programme, ordered by name. Every selected module must have
+live topics and belong to the programme. WORK still requires its Activity and
+positive working days.
+
+Migration `0009_training_topic_snapshots` adds audited ProjectTopic snapshots.
+The service copies topic codes/names, module names, and topic order and derives
+working days from the count. Catalogue edits and deletions do not change existing
+snapshots. Module changes atomically replace the snapshot until attendance is
+first recorded; cleared/deleted attendance remains in history and keeps the
+mapping locked. Existing trainings with attendance but no snapshot require a
+separate reviewed legacy mapping; an edit never silently reinterprets old columns.
+
+Project GraphQL exposes `trainingModules`, `trainingTopics`, and
+`trainingModulesLocked`. Enrollment `moduleCompletion` uses the shared
+`training_module_completion` helper to return ticked/total topics and percentage
+per module. TRAINING time entries accept only 0 or 100; WORK percentages remain
+unchanged. The topic attendance grid is the next UI step.
+
 ### Training module catalogue (issues #129 and #132)
 
 Administration > Training modules manages shared Activity modules, programme links,

@@ -56,6 +56,12 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
                 errors.append({'message': _('Training name is required.')})
             elif len(name) > Project._meta.get_field('name').max_length:
                 errors.append({'message': _('Training name cannot exceed 255 characters.')})
+        else:
+            if not effective('activity') and not effective('activity_id'):
+                errors.append({'message': _('A work project requires an Activity.')})
+            days = effective('working_days')
+            if not isinstance(days, int) or isinstance(days, bool) or days < 1:
+                errors.append({'message': _('A work project requires positive working days.')})
         return errors
 
     @staticmethod
