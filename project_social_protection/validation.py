@@ -7,6 +7,7 @@ from project_social_protection.apps import (
     ProjectSocialProtectionConfig,
 )
 from project_social_protection.models import Project
+from project_social_protection.training_form import validate_training_creation
 
 MIN_TARGET_BENEFICIARIES = 1
 
@@ -95,11 +96,12 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
             data.get('name'), bp.id if bp else data.get('benefit_plan_id')
         )
         errors.extend(cls._validate_session(data))
-        errors.extend(
-            cls._validate_required_target_beneficiaries(
-                data.get('target_beneficiaries')
+        if data.get('project_type', ProjectSocialProtectionConfig.project_type) == 'TRAINING':
+            validate_training_creation(data)
+        else:
+            errors.extend(
+                cls._validate_required_target_beneficiaries(data.get('target_beneficiaries'))
             )
-        )
         errors.extend(cls._validate_target_beneficiaries(data.get('target_beneficiaries')))
         if errors:
             raise ValidationError(errors)
@@ -114,6 +116,8 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
             data.get('id'),
         )
         errors.extend(cls._validate_session(data, project))
+        if project.project_type == 'WORK' and 'target_beneficiaries' in data:
+            errors.extend(cls._validate_required_target_beneficiaries(data['target_beneficiaries']))
         errors.extend(cls._validate_target_beneficiaries(data.get('target_beneficiaries')))
         if errors:
             raise ValidationError(errors)

@@ -24,6 +24,7 @@ from project_social_protection.models import (
 from project_social_protection.validation import ProjectValidation
 from project_social_protection.apps import ProjectSocialProtectionConfig
 from project_social_protection.training_topics import prepare_training_topics, save_training_topics
+from project_social_protection.training_form import apply_training_creation_defaults
 from project_social_protection.mutation_scope import (
     authorized_project, require_authenticated, validate_destination,
 )
@@ -41,6 +42,8 @@ class ProjectService(BaseService):
     @transaction.atomic
     def create(self, obj_data):
         obj_data = {**obj_data, 'project_type': ProjectSocialProtectionConfig.project_type}
+        if obj_data['project_type'] == 'TRAINING':
+            apply_training_creation_defaults(obj_data)
         validate_destination(self.user, obj_data)
         return self._save_project(obj_data)
 
@@ -229,7 +232,8 @@ class ProjectEnrollmentService:
         # If a project is already over target, allow mutations that reduce
         # assigned beneficiaries so users can recover back under the cap.
         if (
-            total_assigned_after_change > project.target_beneficiaries
+            project.target_beneficiaries is not None
+            and total_assigned_after_change > project.target_beneficiaries
             and total_assigned_after_change > total_assigned_before_change
         ):
             msg = _(

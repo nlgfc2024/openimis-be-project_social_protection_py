@@ -4,7 +4,8 @@ import json
 from django.apps import AppConfig
 from django.core.exceptions import ValidationError
 
-from core.module_config_registry import register_reloader
+from core.module_config_registry import register_reloader, register_validator
+from project_social_protection.training_form_config import normalize_training_form
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ DEFAULT_MAX_TARGET_BENEFICIARIES = 200
 # social_protection so existing role grants continue to work.
 DEFAULT_CONFIG = {
     "project_type": "WORK",
+    "training_form": {},
     "gql_activity_search_perms": ["208001"],
     "gql_activity_create_perms": ["208002"],
     "gql_activity_update_perms": ["208003"],
@@ -50,6 +52,7 @@ class ProjectSocialProtectionConfig(AppConfig):
     gql_project_beneficiary_time_entry_perms = None
     max_target_beneficiaries = None
     project_type = "WORK"
+    training_form = {}
     project_code_enabled = None
     project_code_district_digits = None
     project_code_ta_digits = None
@@ -61,6 +64,17 @@ class ProjectSocialProtectionConfig(AppConfig):
         cfg = ModuleConfiguration.get_or_default(self.name, DEFAULT_CONFIG)
         self.__load_config(cfg)
         register_reloader(self.name, self._reload_module_config)
+        register_validator(self.name, self.validate_configuration)
+
+    @staticmethod
+    def validate_configuration(instance):
+        try:
+            config = json.loads(instance.config)
+        except (ValueError, TypeError) as error:
+            raise ValidationError({'config': 'Configuration must be valid JSON.'}) from error
+        if not isinstance(config, dict) or config.get('project_type', 'WORK') not in ('WORK', 'TRAINING'):
+            raise ValidationError({'config': 'project_type must be WORK or TRAINING.'})
+        normalize_training_form(config.get('training_form'), config.get('max_target_beneficiaries', DEFAULT_MAX_TARGET_BENEFICIARIES))
 
     def _reload_module_config(self, instance):
         try:
@@ -76,6 +90,7 @@ class ProjectSocialProtectionConfig(AppConfig):
     def __load_config(cls, cfg):
         if cfg.get('project_type', 'WORK') not in ('WORK', 'TRAINING'):
             raise ValidationError("project_type must be WORK or TRAINING.")
+        normalize_training_form(cfg.get('training_form'), cfg.get('max_target_beneficiaries', DEFAULT_MAX_TARGET_BENEFICIARIES))
         cfg = {**DEFAULT_CONFIG, **cfg}
         for field in cfg:
             if hasattr(ProjectSocialProtectionConfig, field):

@@ -75,7 +75,7 @@ class Project(core_models.HistoryBusinessModel):
     )
     activity = models.ForeignKey(Activity, models.DO_NOTHING, null=True, blank=True)
     location = models.ForeignKey('location.Location', models.DO_NOTHING, null=False)
-    target_beneficiaries = models.SmallIntegerField(null=False)
+    target_beneficiaries = models.IntegerField(null=True, blank=True)
     working_days = models.SmallIntegerField(null=False)
     allows_multiple_enrollments = models.BooleanField(default=False)
 

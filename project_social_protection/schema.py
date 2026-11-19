@@ -1,7 +1,7 @@
 import graphene
 import graphene_django_optimizer as gql_optimizer
 from django.contrib.auth.models import AnonymousUser
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from django.utils.translation import gettext as _
 
@@ -55,6 +55,19 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
         ).distinct().prefetch_related('benefit_plans', 'topics')
 
     project_deployment_type = graphene.String()
+    project_training_form_config = graphene.JSONString(benefit_plan_id=graphene.UUID())
+
+    def resolve_project_training_form_config(self, info, benefit_plan_id=None):
+        if not info.context.user.is_authenticated:
+            raise PermissionDenied(_("unauthorized"))
+        from project_social_protection.training_form import public_training_form
+        plan = None
+        if benefit_plan_id is not None:
+            from social_protection.models import BenefitPlan
+            plan = BenefitPlan.objects.filter(pk=benefit_plan_id, is_deleted=False).first()
+            if plan is None:
+                raise ValidationError(_('Programme does not exist.'))
+        return public_training_form(plan)
 
     def resolve_project_deployment_type(self, info):
         if not info.context.user.is_authenticated:
