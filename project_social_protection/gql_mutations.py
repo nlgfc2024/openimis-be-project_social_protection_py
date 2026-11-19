@@ -12,6 +12,7 @@ from core.gql.gql_mutations.base_mutation import (
 from core.schema import OpenIMISMutation
 from core.models import User
 from location.models import Location, Hotspot, MicroCatchment
+from social_protection.benefit_plan_access import require_benefit_plan_access
 from social_protection.models import BenefitPlan, Beneficiary, GroupBeneficiary
 
 from project_social_protection.apps import ProjectSocialProtectionConfig
@@ -158,12 +159,15 @@ class CreateProjectMutation(
         if "client_mutation_label" in data:
             data.pop("client_mutation_label")
 
-        data["benefit_plan"] = BenefitPlan.objects.get(
-            id=data.pop("benefit_plan_id")
-        )
+        benefit_plan_id = data.pop("benefit_plan_id")
+        require_benefit_plan_access(user, benefit_plan_id)
+        data["benefit_plan"] = BenefitPlan.objects.get(id=benefit_plan_id)
         data["activity"] = Activity.objects.get(id=data.pop("activity_id"))
         data["location"] = Location.objects.get(uuid=data.pop("location_id"))
-        validate_destination(user, {"location": data["location"]})
+        validate_destination(user, {
+            "location": data["location"],
+            "benefit_plan": data["benefit_plan"],
+        })
         # Creation always starts in preparation, regardless of a client-provided
         # status. Progression is allowed only after the project exists.
         data["status"] = ProjectStatus.PREPARATION
@@ -284,9 +288,9 @@ class UpdateProjectMutation(
         project = authorized_project(user, data["id"])
 
         if 'benefit_plan_id' in data:
-            data["benefit_plan"] = BenefitPlan.objects.get(
-                id=data.pop("benefit_plan_id")
-            )
+            benefit_plan_id = data.pop("benefit_plan_id")
+            require_benefit_plan_access(user, benefit_plan_id)
+            data["benefit_plan"] = BenefitPlan.objects.get(id=benefit_plan_id)
         if 'activity_id' in data:
             data["activity"] = Activity.objects.get(id=data.pop("activity_id"))
         if 'location_id' in data:
