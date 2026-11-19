@@ -14,6 +14,27 @@ rather than creating new ones.
 
 ## Django app
 
+### Training module catalogue (issues #129 and #132)
+
+Administration > Training modules manages shared Activity modules, programme links,
+and ordered topics. Module searches use `gql_activity_search_perms` (208001);
+create/update/delete use `gql_activity_create_perms` (208002),
+`gql_activity_update_perms` (208003), and `gql_activity_delete_perms` (208004).
+All mutations enforce their right in the service as well as the UI.
+
+`trainingModule(benefitPlans_Id: "<programme UUID>")` returns live catalogue modules
+with `programmes` and ordered `topics`. `createTrainingModule`,
+`updateTrainingModule`, and `deleteTrainingModule` expose atomic changes and clear
+validation errors. A save includes the complete ordered topic list; retain topic
+IDs to edit/reorder, and omit removed topics to soft-delete them. Topic codes are
+unique among all live topics. Legacy WORK Activities do not require programme
+links or topics and continue to use the existing Activity query.
+
+Topic changes have their own history. Each module save also records programme IDs
+and the ordered topics under `json_ext.training_catalogue` so its existing history
+captures M2M association changes. Deleting modules/topics retains the rows and
+their historical records. Project attendance snapshots are the next step (#130).
+
 ### Training setup (issue #98)
 
 Configure module `project_social_protection`, layer `backend`, using the module's

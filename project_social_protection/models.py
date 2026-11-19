@@ -23,11 +23,29 @@ from project_social_protection.scope import allowed_project_location_ids
 
 class Activity(core_models.HistoryBusinessModel):
     name = models.CharField(max_length=255, null=False, unique=True)
+    benefit_plans = models.ManyToManyField('social_protection.BenefitPlan', blank=True,
+                                         related_name='training_modules')
 
     class Meta:
         db_table = "social_protection_activity"
         verbose_name = "Activity"
         verbose_name_plural = "Activities"
+
+
+class ActivityTopic(core_models.HistoryBusinessModel):
+    activity = models.ForeignKey(Activity, models.DO_NOTHING, related_name='topics')
+    code = models.CharField(max_length=64)
+    name = models.CharField(max_length=255)
+    sequence = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ['sequence', 'id']
+        constraints = [
+            models.UniqueConstraint(fields=['code'], condition=models.Q(is_deleted=False),
+                                    name='uniq_live_activity_topic_code'),
+            models.UniqueConstraint(fields=['activity', 'sequence'], condition=models.Q(is_deleted=False),
+                                    name='uniq_live_activity_topic_sequence'),
+        ]
 
 
 class ProjectStatus(models.TextChoices):

@@ -12,6 +12,7 @@ from social_protection.gql_queries import BenefitPlanGQLType
 
 from project_social_protection.models import (
     Activity,
+    ActivityTopic,
     Project,
     BeneficiaryProjectTimeEntry,
     GroupBeneficiaryProjectTimeEntry,
@@ -97,6 +98,7 @@ class ActivityFilter(django_filters.FilterSet):
         model = Activity
         fields = {
             "id": ["exact"],
+            "benefit_plans__id": ["exact"],
             "name": ["exact", "iexact", "startswith", "istartswith",
                      "contains", "icontains"],
             "date_created": ["exact", "lt", "lte", "gt", "gte"],
@@ -106,8 +108,26 @@ class ActivityFilter(django_filters.FilterSet):
         }
 
 
+class ActivityTopicGQLType(DjangoObjectType):
+    class Meta:
+        model = ActivityTopic
+        fields = ('id', 'code', 'name', 'sequence')
+
+
 class ActivityGQLType(DjangoObjectType):
     uuid = graphene.String(source='uuid')
+    programmes = graphene.List(BenefitPlanGQLType)
+    topics = graphene.List(ActivityTopicGQLType)
+
+    def resolve_programmes(self, info):
+        from project_social_protection.training_catalogue import require_catalogue_permission
+        require_catalogue_permission(info.context.user, 'search')
+        return self.benefit_plans.filter(is_deleted=False).order_by('name', 'id')
+
+    def resolve_topics(self, info):
+        from project_social_protection.training_catalogue import require_catalogue_permission
+        require_catalogue_permission(info.context.user, 'search')
+        return self.topics.filter(is_deleted=False).order_by('sequence', 'id')
 
     class Meta:
         model = Activity

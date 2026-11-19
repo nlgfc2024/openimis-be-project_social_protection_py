@@ -16,6 +16,9 @@ DEFAULT_MAX_TARGET_BENEFICIARIES = 200
 DEFAULT_CONFIG = {
     "project_type": "WORK",
     "gql_activity_search_perms": ["208001"],
+    "gql_activity_create_perms": ["208002"],
+    "gql_activity_update_perms": ["208003"],
+    "gql_activity_delete_perms": ["208004"],
     "gql_project_search_perms": ["209001"],
     "gql_project_create_perms": ["209002"],
     "gql_project_update_perms": ["209003"],
@@ -36,6 +39,9 @@ class ProjectSocialProtectionConfig(AppConfig):
     verbose_name = "Project (Social Protection)"
 
     gql_activity_search_perms = None
+    gql_activity_create_perms = None
+    gql_activity_update_perms = None
+    gql_activity_delete_perms = None
     gql_project_search_perms = None
     gql_project_create_perms = None
     gql_project_update_perms = None
