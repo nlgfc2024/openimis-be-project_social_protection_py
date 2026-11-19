@@ -14,6 +14,27 @@ rather than creating new ones.
 
 ## Django app
 
+### Training setup (issue #98)
+
+Configure module `project_social_protection`, layer `backend`, using the module's
+existing version. Add `"project_type": "TRAINING"` to its configuration to create
+trainings, or `"project_type": "WORK"` for the existing work deployment (default).
+Only these two values are valid. Invalid startup configuration fails; an invalid
+reload is logged and retains the previous configuration.
+
+Migration `0007_training_sessions` marks existing projects and their history as
+WORK. New projects receive the deployment type in the service; it is read-only
+and remains unchanged when the deployment configuration changes. The signed-in
+`projectDeploymentType` GraphQL query supplies the create form's type; editing
+uses the stored `projectType` instead. There is no type selector.
+
+Trainings require a manually entered name (maximum 255 characters), unique among
+live projects in their programme, and a location. Optional `sessionStartDate`
+and `sessionEndDate` support clearing and partial updates; an end date before the
+start date is rejected. WORK name generation is unchanged. This setup step does
+not implement the module/topic catalogue, attendance sheets, or the revised
+training enrolment restrictions; those are subsequent steps.
+
 ```
 project_social_protection
 ```

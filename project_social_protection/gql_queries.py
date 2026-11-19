@@ -141,6 +141,7 @@ class ProjectFilter(django_filters.FilterSet):
 
 
 class ProjectGQLType(ProjectReadScopeMixin, DjangoObjectType):
+    project_type = graphene.String()
     uuid = graphene.String(source='uuid')
     code = graphene.String()
     assigned_beneficiaries_count = graphene.Int()
@@ -180,6 +181,9 @@ class ProjectGQLType(ProjectReadScopeMixin, DjangoObjectType):
             'code',
             'name',
             'status',
+            'project_type',
+            'session_start_date',
+            'session_end_date',
             'benefit_plan',
             'activity',
             'location',

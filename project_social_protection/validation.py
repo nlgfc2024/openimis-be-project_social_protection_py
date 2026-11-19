@@ -40,6 +40,25 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
     OBJECT_TYPE = Project
 
     @staticmethod
+    def _validate_session(data, project=None):
+        def effective(field):
+            return data[field] if field in data else getattr(project, field, None)
+
+        errors = []
+        start, end = effective('session_start_date'), effective('session_end_date')
+        if start and end and start > end:
+            errors.append({'message': _('Session end date must not precede session start date.')})
+        project_type = project.project_type if project else data.get(
+            'project_type', ProjectSocialProtectionConfig.project_type)
+        if project_type == 'TRAINING':
+            name = effective('name')
+            if not isinstance(name, str) or not name.strip():
+                errors.append({'message': _('Training name is required.')})
+            elif len(name) > Project._meta.get_field('name').max_length:
+                errors.append({'message': _('Training name cannot exceed 255 characters.')})
+        return errors
+
+    @staticmethod
     def _validate_required_target_beneficiaries(target_beneficiaries):
         if target_beneficiaries is None:
             return [{"message": _("Target beneficiaries is required.")}]
@@ -69,6 +88,7 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
         errors = validate_project_unique_name(
             data.get('name'), bp.id if bp else data.get('benefit_plan_id')
         )
+        errors.extend(cls._validate_session(data))
         errors.extend(
             cls._validate_required_target_beneficiaries(
                 data.get('target_beneficiaries')
@@ -80,13 +100,14 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
 
     @classmethod
     def validate_update(cls, user, **data):
-        # name is derived and not sent on update, but guard defensively.
+        project = Project.objects.get(pk=data['id'])
         bp = data.get('benefit_plan')
         errors = validate_project_unique_name(
-            data.get('name'),
-            bp.id if bp else data.get('benefit_plan_id'),
+            data.get('name', project.name),
+            bp.id if bp else data.get('benefit_plan_id', project.benefit_plan_id),
             data.get('id'),
         )
+        errors.extend(cls._validate_session(data, project))
         errors.extend(cls._validate_target_beneficiaries(data.get('target_beneficiaries')))
         if errors:
             raise ValidationError(errors)

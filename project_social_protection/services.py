@@ -21,6 +21,7 @@ from project_social_protection.models import (
     GroupBeneficiaryProjectEnrollment,
 )
 from project_social_protection.validation import ProjectValidation
+from project_social_protection.apps import ProjectSocialProtectionConfig
 from project_social_protection.mutation_scope import (
     authorized_project, require_authenticated, validate_destination,
 )
@@ -37,12 +38,15 @@ class ProjectService(BaseService):
     @register_service_signal("project_service.create")
     @transaction.atomic
     def create(self, obj_data):
+        obj_data = {**obj_data, 'project_type': ProjectSocialProtectionConfig.project_type}
         validate_destination(self.user, obj_data)
         return super().create(obj_data)
 
     @register_service_signal("project_service.update")
     @transaction.atomic
     def update(self, obj_data):
+        obj_data = dict(obj_data)
+        obj_data.pop('project_type', None)
         project = authorized_project(self.user, obj_data['id'])
         validate_destination(self.user, obj_data, project)
         return super().update(obj_data)
