@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import graphene
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import RequestFactory, TestCase, override_settings
 from graphql_relay import to_global_id
 
@@ -325,6 +325,68 @@ class ProjectBenefitPlanAccessTest(ProjectDistrictScopeFixtures, TestCase):
         self.assertEqual(Project.objects.count(), project_count)
         self.group_entries[0].refresh_from_db()
         self.assertEqual(self.group_entries[0].percent_complete, 75)
+
+    def test_projects_with_individual_or_group_enrolments_cannot_change_plan(self):
+        self.add_group_plan_access()
+        service = ProjectService(self.reader)
+
+        for project, destination_plan in [
+            (self.projects[0], self.group_plan),
+            (self.group_projects[0], self.plan),
+        ]:
+            with self.subTest(project=project.code):
+                with self.assertRaisesRegex(
+                    ValidationError,
+                    "with individual or group enrolments cannot be moved",
+                ):
+                    service.update({
+                        "id": project.pk,
+                        "benefit_plan": destination_plan,
+                    })
+                project.refresh_from_db()
+                self.assertNotEqual(project.benefit_plan_id, destination_plan.pk)
+
+    def test_graphql_rejects_plan_change_for_project_with_enrolments(self):
+        self.add_group_plan_access()
+
+        log = self.graphql_mutation(
+            "updateProject",
+            "UpdateProjectMutationInput",
+            {
+                "id": str(self.projects[0].pk),
+                "benefitPlanId": str(self.group_plan.pk),
+            },
+        )
+
+        self.assertEqual(log.status, MutationLog.ERROR)
+        self.assertIn("with individual or group enrolments", log.error)
+        self.projects[0].refresh_from_db()
+        self.assertEqual(self.projects[0].benefit_plan_id, self.plan.pk)
+
+    def test_project_without_enrolments_can_change_plan_with_both_accesses(self):
+        self.add_group_plan_access()
+        project = self.project("PS-NO-ENROL", self.villages[0])
+
+        result = ProjectService(self.reader).update({
+            "id": project.pk,
+            "benefit_plan": self.group_plan,
+        })
+
+        self.assertTrue(result["success"])
+        project.refresh_from_db()
+        self.assertEqual(project.benefit_plan_id, self.group_plan.pk)
+
+    def test_normal_project_update_remains_allowed_with_enrolments(self):
+        project = self.projects[0]
+
+        result = ProjectService(self.reader).update({
+            "id": project.pk,
+            "working_days": 6,
+        })
+
+        self.assertTrue(result["success"])
+        project.refresh_from_db()
+        self.assertEqual(project.working_days, 6)
 
     def test_enrollment_and_bulk_time_entries_reject_unauthorized_plan(self):
         group_service = ProjectEnrollmentService(
