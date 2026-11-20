@@ -26,10 +26,10 @@ class TrainingCatalogueTest(ProjectDistrictScopeFixtures, TestCase):
     def create(self, name='Entrepreneurship', prefix='E', plans=None):
         return self.service.save(name, plans or [self.plan.pk], self.topics(prefix))
 
-    def graphql(self, query, variables=None, user=None):
+    def graphql(self, query, variables=None, user=None, async_mode=False):
         request = RequestFactory().post('/graphql')
         request.user = user or self.admin
-        with patch('core.async_mutations', False):
+        with patch('core.async_mutations', async_mode):
             return graphene.Schema(query=Query, mutation=Mutation).execute(
                 query, variable_values=variables, context_value=request)
 
@@ -262,3 +262,20 @@ class TrainingCatalogueTest(ProjectDistrictScopeFixtures, TestCase):
         self.assertTrue(result.errors)
         self.assertEqual(MutationLog.objects.count(), count)
         self.assertFalse(Activity.objects.filter(name='CSRF blocked').exists())
+
+    def test_async_worker_resolves_catalogue_mutation_and_updates_journal(self):
+        from core.tasks import openimis_mutation_async
+        with patch('core.schema.openimis_mutation_async.delay') as enqueue:
+            result = self.graphql('''mutation($input: CreateTrainingModuleInput!) {
+              createTrainingModule(input: $input) {internalId}
+            }''', {'input': {'name': 'Queued module', 'programmeIds': [str(self.plan.pk)],
+                            'topics': self.topics('ASYNC')}}, async_mode=True)
+        self.assertIsNone(result.errors, result.errors)
+        journal = MutationLog.objects.get(pk=result.data['createTrainingModule']['internalId'])
+        self.assertEqual(journal.status, 0)
+        self.assertFalse(Activity.objects.filter(name='Queued module').exists())
+        enqueue.assert_called_once_with(journal.pk, 'project_social_protection', 'CreateTrainingModule')
+        openimis_mutation_async.run(journal.pk, 'project_social_protection', 'CreateTrainingModule')
+        journal.refresh_from_db()
+        self.assertEqual(journal.status, 2, journal.error)
+        self.assertTrue(Activity.objects.filter(name='Queued module').exists())
