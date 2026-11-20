@@ -19,6 +19,11 @@ from project_social_protection.training_topics import has_training_attendance, t
 class TrainingTopicsTest(ProjectDistrictScopeFixtures, TestCase):
     def setUp(self):
         super().setUp()
+        configuration = patch.object(ProjectSocialProtectionConfig, 'training_form', {'fields': {
+            'microCatchment': {'required': False}, 'hotspot': {'required': False},
+        }})
+        configuration.start()
+        self.addCleanup(configuration.stop)
         self.catalogue = TrainingModuleService(self.admin)
         self.a_module = self.catalogue.save('A Entrepreneurship', [self.plan.pk], [
             {'code': 'E01', 'name': 'Business idea'}, {'code': 'E02', 'name': 'Starting a business'}])

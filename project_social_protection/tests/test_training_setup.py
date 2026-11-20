@@ -55,6 +55,11 @@ class TrainingConfigurationTest(SimpleTestCase):
 class TrainingSetupTest(ProjectDistrictScopeFixtures, TestCase):
     def setUp(self):
         super().setUp()
+        configuration = patch.object(ProjectSocialProtectionConfig, 'training_form', {'fields': {
+            'microCatchment': {'required': False}, 'hotspot': {'required': False},
+        }})
+        configuration.start()
+        self.addCleanup(configuration.stop)
         TrainingModuleService(self.admin).save('Setup module', [self.plan.pk],
                                              [{'code': 'SETUP01', 'name': 'Setup topic'}])
 

@@ -15,6 +15,7 @@ from location.models import Location, Hotspot, MicroCatchment
 from social_protection.models import BenefitPlan, Beneficiary, GroupBeneficiary
 
 from project_social_protection.apps import ProjectSocialProtectionConfig
+from project_social_protection.training_form import apply_training_creation_defaults
 from project_social_protection.mutation_scope import (
     authorized_project, invalid_hotspot_error, validate_destination,
 )
@@ -43,20 +44,20 @@ def _normalize_numeric_code(code_value, digits):
     return (numeric[-digits:] if numeric else '').zfill(digits)
 
 
-def generate_project_code(location):
+def generate_project_code(location, allow_district=False):
     district_digits = int(ProjectSocialProtectionConfig.project_code_district_digits)
     ta_digits = int(ProjectSocialProtectionConfig.project_code_ta_digits)
     sequence_digits = int(ProjectSocialProtectionConfig.project_code_sequence_digits)
 
     district = _find_location_by_type(location, 'R')
     ta = _find_location_by_type(location, 'D')
-    if district is None or ta is None:
+    if district is None or (ta is None and not (allow_district and location.type == 'R')):
         raise ValidationError(
             _("A project location must belong to a District and Traditional Authority.")
         )
 
     district_code = _normalize_numeric_code(getattr(district, 'code', None), district_digits)
-    ta_code = _normalize_numeric_code(getattr(ta, 'code', None), ta_digits)
+    ta_code = _normalize_numeric_code(getattr(ta, 'code', None), ta_digits) if ta else '0' * ta_digits
     prefix = f"{district_code}{ta_code}"
     pattern = re.compile(rf"^{prefix}(\d{{{sequence_digits}}})$")
 
@@ -122,13 +123,14 @@ def generate_project_name(hotspot, activity, benefit_plan, known_place):
 
 
 class CreateProjectInputType(OpenIMISMutation.Input):
+    district_id = graphene.UUID(required=False)
     session_start_date = graphene.Date(required=False)
     session_end_date = graphene.Date(required=False)
     benefit_plan_id = graphene.ID(required=True)
     name = graphene.String(required=False)
     activity_id = graphene.ID(required=False)
-    location_id = graphene.ID(required=True)
-    target_beneficiaries = graphene.Int(required=True)
+    location_id = graphene.ID(required=False)
+    target_beneficiaries = graphene.Int(required=False)
     working_days = graphene.Int(required=False)
     allows_multiple_enrollments = graphene.Boolean(required=False)
     micro_catchment_id = graphene.ID(required=False)
@@ -160,12 +162,19 @@ class CreateProjectMutation(
         if "client_mutation_label" in data:
             data.pop("client_mutation_label")
 
+        if ProjectSocialProtectionConfig.project_type == 'TRAINING':
+            apply_training_creation_defaults(data)
         data["benefit_plan"] = BenefitPlan.objects.get(
             id=data.pop("benefit_plan_id")
         )
         if data.get('activity_id'):
             data['activity'] = Activity.objects.get(id=data.pop('activity_id'))
-        data["location"] = Location.objects.get(uuid=data.pop("location_id"))
+        if data.get('location_id'):
+            data['location'] = Location.objects.get(uuid=data.pop('location_id'))
+        else:
+            data.pop('location_id', None)
+        if not data.get('location'):
+            raise ValidationError(_('Location is required.'))
         validate_destination(user, {"location": data["location"]})
         # Creation always starts in preparation, regardless of a client-provided
         # status. Progression is allowed only after the project exists.
@@ -182,7 +191,7 @@ class CreateProjectMutation(
             max_retries = 5
             for _attempt in range(max_retries):
                 try:
-                    code = generate_project_code(data["location"])
+                    code = generate_project_code(data["location"], allow_district=ProjectSocialProtectionConfig.project_type == 'TRAINING')
                 except ValidationError as exc:
                     return {
                         "success": False,
