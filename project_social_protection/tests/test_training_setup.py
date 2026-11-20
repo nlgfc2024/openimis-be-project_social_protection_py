@@ -94,7 +94,7 @@ class TrainingSetupTest(ProjectDistrictScopeFixtures, TestCase):
         other.save(username=self.admin.username)
         result = ProjectService(self.admin).update({'id': other.pk, 'benefit_plan': self.plan})
         self.assertFalse(result['success'], result)
-        self.assertIn('already exists', str(result))
+        self.assertIn('programme cannot change', str(result))
         with patch.object(ProjectSocialProtectionConfig, 'project_type', 'TRAINING'):
             duplicate = ProjectService(self.admin).create(self.payload())
         self.assertFalse(duplicate['success'], duplicate)
