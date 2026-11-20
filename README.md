@@ -14,7 +14,11 @@ rather than creating new ones.
 
 ## Django app
 
-### Training module catalogue (issues #129 and #132)
+```
+project_social_protection
+```
+
+## Training module catalogue
 
 Administration > Training modules manages shared Activity modules, programme links,
 and ordered topics. Module searches use `gql_activity_search_perms` (208001);
@@ -33,9 +37,9 @@ links or topics and continue to use the existing Activity query.
 Topic changes have their own history. Each module save also records programme IDs
 and the ordered topics under `json_ext.training_catalogue` so its existing history
 captures M2M association changes. Deleting modules/topics retains the rows and
-their historical records. Project attendance snapshots are the next step (#130).
+their historical records. Project attendance snapshots are a separate feature.
 
-### Training setup (issue #98)
+## Training setup
 
 Configure module `project_social_protection`, layer `backend`, using the module's
 existing version. Add `"project_type": "TRAINING"` to its configuration to create
@@ -55,10 +59,6 @@ and `sessionEndDate` support clearing and partial updates; an end date before th
 start date is rejected. WORK name generation is unchanged. This setup step does
 not implement the module/topic catalogue, attendance sheets, or the revised
 training enrolment restrictions; those are subsequent steps.
-
-```
-project_social_protection
-```
 
 ## Depends on
 
