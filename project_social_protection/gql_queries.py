@@ -220,7 +220,7 @@ class ProjectGQLType(ProjectReadScopeMixin, DjangoObjectType):
 
     def resolve_training_modules_locked(self, info):
         require_project_read(info)
-        return self.project_type == 'TRAINING' and has_training_attendance(self)
+        return self.project_type == 'TRAINING'
 
     project_type = graphene.String()
     uuid = graphene.String(source='uuid')

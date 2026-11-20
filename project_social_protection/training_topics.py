@@ -45,7 +45,9 @@ def prepare_training_topics(data, project=None):
         is_deleted=False, benefit_plans__pk=plan_id).order_by('pk'))
     if not modules:
         raise ValidationError(_('The programme has no training modules. Configure its modules first.'))
-    modules.sort(key=lambda module: (module.name, str(module.pk)))
+    locked = {module.pk: module for module in modules}
+    modules = [locked[pk] for pk in Activity.objects.filter(pk__in=locked)
+               .order_by('name', 'pk').values_list('pk', flat=True)]
     rows = []
     for module in modules:
         topics = list(ActivityTopic.objects.select_for_update().filter(
