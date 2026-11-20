@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import gettext as _
 from core.models import User
 from location.models import Location, MicroCatchment, Hotspot
-from project_social_protection.models import ProjectStatus
+from project_social_protection.models import Project, ProjectStatus
 from project_social_protection.training_form_config import get_training_form
 
 
@@ -77,7 +77,7 @@ def apply_training_creation_defaults(data):
     return data
 
 
-def validate_training_creation(data):
+def validate_training_creation(data, check_district_default=True):
     errors = []
     fields = form_for_data(data)['fields']
     for field, rule in fields.items():
@@ -107,7 +107,7 @@ def validate_training_creation(data):
             value = data.get(attribute, data.get(f'{attribute}_id'))
         if rule['required'] and (value is None or value == '' or isinstance(value, str) and not value.strip()):
             errors.append({'message': _('%(field)s is required by the Training form configuration.') % {'field': field}})
-        if field == 'district' and value is not None and rule.get('default') is not None and (
+        if check_district_default and field == 'district' and value is not None and rule.get('default') is not None and (
                 rule['readOnly'] or not rule['visible']):
             expected = resolve_default('district', rule['default'])
             if value.pk != expected.pk:
@@ -139,3 +139,40 @@ def public_training_form(benefit_plan=None):
         elif isinstance(value, date):
             rule['default'] = value.isoformat()
     return config
+
+
+def validate_training_update(data, project):
+    """Validate effective partial updates without reapplying creation defaults."""
+    fields = get_training_form(project.benefit_plan)['fields']
+    bindings = {**BINDINGS, 'status': 'status', 'benefitPlan': 'benefit_plan'}
+    effective = {'working_days': project.working_days}
+    errors = []
+    for field, attribute in bindings.items():
+        previous = getattr(project, attribute)
+        proposed = previous
+        if attribute in data:
+            proposed = data[attribute]
+        elif f'{attribute}_id' in data:
+            identity = data[f'{attribute}_id']
+            model_field = Project._meta.get_field(attribute)
+            proposed = model_field.related_model.objects.get(pk=identity) if identity is not None else None
+        effective[attribute] = proposed
+        rule = fields[field]
+        old_value, new_value = getattr(previous, 'pk', previous), getattr(proposed, 'pk', proposed)
+        if (rule['readOnly'] or not rule['visible']) and old_value != new_value:
+            errors.append(_('%(field)s is read-only in the Training form configuration.') % {'field': field})
+    # A read-only district protects the ancestry even when location itself is editable.
+    def district(location):
+        seen = set()
+        while location is not None and location.pk not in seen:
+            if location.type == 'R':
+                return location.pk
+            seen.add(location.pk)
+            location = location.parent
+        return None
+    rule = fields['district']
+    if (rule['readOnly'] or not rule['visible']) and district(project.location) != district(effective['location']):
+        errors.append(_('district is read-only in the Training form configuration.'))
+    if errors:
+        raise ValidationError(errors)
+    validate_training_creation(effective, check_district_default=False)

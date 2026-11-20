@@ -5,8 +5,9 @@ from uuid import uuid4
 from django.utils.translation import gettext as _
 
 from social_protection.models import BenefitPlan
+from social_protection.benefit_plan_access import require_benefit_plan_access, filter_queryset_by_benefit_plan
 from project_social_protection.apps import ProjectSocialProtectionConfig
-from project_social_protection.models import Activity, ActivityTopic, Project
+from project_social_protection.models import Activity, ActivityTopic, Project, ProjectTopic
 
 
 def require_catalogue_permission(user, operation):
@@ -42,11 +43,16 @@ class TrainingModuleService:
             module = Activity.objects.select_for_update().filter(pk=module_id, is_deleted=False).first()
             if not module or not module.topics.filter(is_deleted=False).exists() or not module.benefit_plans.filter(is_deleted=False).exists():
                 raise ValidationError(_('Training module does not exist.'))
-        if Activity.objects.filter(name=name).exclude(pk=module_id).exists():
+        if module is not None:
+            for plan_id in module.benefit_plans.filter(is_deleted=False).values_list('pk', flat=True):
+                require_benefit_plan_access(self.user, plan_id)
+        if Activity.objects.filter(name=name, is_deleted=False).exclude(pk=module_id).exists():
             raise ValidationError(_('A module with this name already exists.'))
         if not programme_ids:
             raise ValidationError(_('Select at least one programme.'))
         programme_ids = set(map(str, programme_ids))
+        for plan_id in programme_ids:
+            require_benefit_plan_access(self.user, plan_id)
         programmes = list(BenefitPlan.objects.filter(pk__in=programme_ids, is_deleted=False))
         if {str(plan.pk) for plan in programmes} != programme_ids:
             raise ValidationError(_('One or more programmes do not exist.'))
@@ -109,7 +115,10 @@ class TrainingModuleService:
         module = Activity.objects.select_for_update().filter(pk=module_id, is_deleted=False).first()
         if not module:
             raise ValidationError(_('Training module does not exist.'))
-        if Project.objects.filter(activity=module, is_deleted=False).exists():
+        for plan_id in module.benefit_plans.filter(is_deleted=False).values_list('pk', flat=True):
+            require_benefit_plan_access(self.user, plan_id)
+        if Project.objects.filter(activity=module, is_deleted=False).exists() or ProjectTopic.objects.filter(
+                topic__activity=module, is_deleted=False, project__is_deleted=False).exists():
             raise ValidationError(_('Cannot delete an Activity used by a live project.'))
         if not module.topics.filter(is_deleted=False).exists() or not module.benefit_plans.filter(is_deleted=False).exists():
             raise ValidationError(_('Training module does not exist.'))
@@ -119,3 +128,8 @@ class TrainingModuleService:
         module.is_deleted = True
         module.save(user=self.user)
         return module
+
+
+def scoped_training_modules(user):
+    return filter_queryset_by_benefit_plan(Activity.objects.filter(
+        is_deleted=False, benefit_plans__is_deleted=False), user, 'benefit_plans__id').distinct()

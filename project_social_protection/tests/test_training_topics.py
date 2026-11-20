@@ -42,6 +42,8 @@ class TrainingTopicsTest(ProjectDistrictScopeFixtures, TestCase):
         return Project.objects.get(pk=result['data']['id'])
 
     def enrollment(self, project):
+        project.status = 'IN_PROGRESS'
+        project.save(user=self.admin)
         enrollment = BeneficiaryProjectEnrollment(project=project, beneficiary=self.beneficiaries[0])
         enrollment.save(user=self.admin)
         return enrollment
@@ -105,8 +107,9 @@ class TrainingTopicsTest(ProjectDistrictScopeFixtures, TestCase):
         self.assertEqual(self.snapshot(project)[1][2:], ('Changed topic', 'Changed module'))
         project.refresh_from_db()
         self.assertEqual(project.working_days, 3)
-        self.catalogue.delete(self.a_module.pk)
-        self.assertTrue(ProjectService(self.admin).update({'id': project.pk, 'name': 'After deletion'})['success'])
+        with self.assertRaisesMessage(ValidationError, 'live project'):
+            self.catalogue.delete(self.a_module.pk)
+        self.assertTrue(ProjectService(self.admin).update({'id': project.pk, 'name': 'After rejected deletion'})['success'])
         self.assertEqual(list(project.training_topics.values_list('topic_id', 'sequence')), original)
 
     def test_attendance_locks_modules_including_after_clearing(self):
@@ -236,3 +239,35 @@ class TrainingTopicsTest(ProjectDistrictScopeFixtures, TestCase):
         with patch.object(ProjectSocialProtectionConfig, 'project_type', 'WORK'):
             work = schema.execute(query, variable_values={'id': str(self.plan.pk)}, context_value=request)
         self.assertEqual(work.data['projectProgrammeModules'], [])
+
+
+    def test_module_deletion_is_blocked_by_live_training_topic_links(self):
+        project = self.create()
+        with self.assertRaisesMessage(ValidationError, 'live project'):
+            self.catalogue.delete(self.a_module.pk)
+        self.a_module.refresh_from_db()
+        self.assertFalse(self.a_module.is_deleted)
+        project.is_deleted = True
+        project.save(user=self.admin)
+        self.catalogue.delete(self.a_module.pk)
+        self.a_module.refresh_from_db()
+        self.assertTrue(self.a_module.is_deleted)
+
+    def test_training_attendance_is_writable_only_in_progress(self):
+        project = self.create()
+        enrollment = self.enrollment(project)
+        service = ProjectEnrollmentService(self.admin, ProjectEnrollmentService.INDIVIDUAL)
+        entry = {'enrollment_id': str(enrollment.pk), 'day_number': 1, 'percent_complete': 100}
+        for status in ['INITIATED', 'PREPARATION', 'COMPLETED']:
+            project.status = status
+            project.save(user=self.admin)
+            with self.assertRaisesMessage(ValidationError, 'IN_PROGRESS'):
+                service.bulk_update_time_entries({'time_entries': [entry]})
+            enrollment.project = project
+            with self.assertRaisesMessage(ValidationError, 'IN_PROGRESS'):
+                BeneficiaryProjectTimeEntry(enrollment=enrollment, day_number=1, percent_complete=100).clean()
+        self.assertFalse(enrollment.time_entries.exists())
+        project.status = 'IN_PROGRESS'
+        project.save(user=self.admin)
+        service.bulk_update_time_entries({'time_entries': [entry]})
+        self.assertEqual(enrollment.time_entries.get().percent_complete, 100)

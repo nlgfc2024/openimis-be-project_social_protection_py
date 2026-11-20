@@ -167,11 +167,19 @@ class ActivityGQLType(DjangoObjectType):
     def resolve_programmes(self, info):
         from project_social_protection.training_catalogue import require_catalogue_permission
         require_catalogue_permission(info.context.user, 'search')
-        return self.benefit_plans.filter(is_deleted=False).order_by('name', 'id')
+        from social_protection.benefit_plan_access import filter_queryset_by_benefit_plan
+        return filter_queryset_by_benefit_plan(self.benefit_plans.filter(is_deleted=False),
+                                             info.context.user, 'pk').order_by('name', 'id')
 
     def resolve_topics(self, info):
         from project_social_protection.training_catalogue import require_catalogue_permission
         require_catalogue_permission(info.context.user, 'search')
+        from project_social_protection.training_catalogue import scoped_training_modules
+        if not scoped_training_modules(info.context.user).filter(pk=self.pk).exists():
+            raise PermissionDenied(_('unauthorized'))
+        from project_social_protection.training_catalogue import scoped_training_modules
+        if not scoped_training_modules(info.context.user).filter(pk=self.pk).exists():
+            raise PermissionDenied(_('unauthorized'))
         return self.topics.filter(is_deleted=False).order_by('sequence', 'id')
 
     class Meta:

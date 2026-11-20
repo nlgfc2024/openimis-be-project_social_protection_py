@@ -45,6 +45,8 @@ def _normalize_training_fields(raw=None, maximum_target=200):
             raise ValidationError(f'{name} is required by the Training workflow.')
         if name in ('status', 'benefitPlan', 'topicCount') and not effective['readOnly']:
             raise ValidationError(f'{name} is controlled by the system and must remain read-only.')
+        if name == 'name' and ('default' in rule or not effective['visible'] or effective['readOnly']):
+            raise ValidationError('Training name must be entered manually: visible, editable and without a default.')
         if 'default' in rule:
             value = rule['default']
             if name in ('benefitPlan', 'topicCount', 'trainingModules'):

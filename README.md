@@ -205,3 +205,26 @@ The API resolves the selected programme using `projectTrainingFormConfig(benefit
 creation defaults and validation use the same programme rules. Save the backend
 module configuration and reload the creation page; JSON-only changes need no UI build.
 WORK/TRAINING remains a deployment setting.
+
+
+### Training review safeguards
+
+Training names are manually entered, visible and editable; `name.default` is
+rejected in shared and programme-specific configuration. Partial updates validate
+the effective saved state against required/read-only rules, retaining stored
+values rather than reapplying creation defaults. A read-only district also
+protects location ancestry. WORK updates skip Training-only name lookups and
+reject session dates.
+
+Attendance may only be recorded or cleared while a Training is IN_PROGRESS.
+Existing completion remains readable after completion. WORK attendance is unchanged.
+
+Live Training topic references block catalogue deletion. Catalogue queries,
+programme labels, form configuration and mutations respect programme assignments;
+editing/deleting a shared module requires access to every linked programme.
+Deleted module names may be reused after migration 0013; live Activity names
+remain unique. This also allows reuse of deleted WORK Activity names.
+The configuration example uses placeholder programme codes.
+
+Migrations 0009/0011/0012 are retained because they have already been applied
+locally. Migration 0013 changes only name uniqueness, without deleting records.

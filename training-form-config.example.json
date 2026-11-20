@@ -19,7 +19,7 @@
       "supervisor": { "visible": false, "required": false, "readOnly": false }
     },
     "programs": {
-      "202646268": {
+      "REPLACE_WITH_RMEP_PROGRAM_CODE": {
         "fields": {
           "name": { "visible": true, "required": true, "readOnly": false },
           "sessionStartDate": { "visible": true, "required": false, "readOnly": false, "default": null },
@@ -38,7 +38,7 @@
           "supervisor": { "visible": false, "required": false, "readOnly": false }
         }
       },
-      "202666961": {
+      "REPLACE_WITH_UPG_PROGRAM_CODE": {
         "fields": {
           "name": { "visible": true, "required": true, "readOnly": false },
           "sessionStartDate": { "visible": true, "required": false, "readOnly": false, "default": null },

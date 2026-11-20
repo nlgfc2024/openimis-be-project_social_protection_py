@@ -3,6 +3,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils.translation import gettext as _
 
 from location.models import Location, MicroCatchment, Hotspot
+from social_protection.benefit_plan_access import require_benefit_plan_access
 from project_social_protection.models import Project
 from project_social_protection.scope import allowed_project_location_ids
 
@@ -23,6 +24,7 @@ def authorized_project(user, project_id, deleted=False):
     ).first()
     if project is None:
         raise PermissionDenied(_("unauthorized"))
+    require_benefit_plan_access(user, project.benefit_plan_id)
     return project
 
 
@@ -55,6 +57,10 @@ def validate_destination(user, data, project=None):
     require_authenticated(user)
     if 'pk' in data or 'uuid' in data or (project is None and 'id' in data):
         raise ValidationError(_("Project identity cannot be supplied or changed."))
+    plan = data.get('benefit_plan')
+    plan_id = getattr(plan, 'pk', data.get('benefit_plan_id', getattr(project, 'benefit_plan_id', None)))
+    if plan_id is not None:
+        require_benefit_plan_access(user, plan_id)
     location = _related(data, 'location', Location, project)
     allowed = allowed_project_location_ids(user)
     if location is None or (allowed is not None and location.pk not in allowed):

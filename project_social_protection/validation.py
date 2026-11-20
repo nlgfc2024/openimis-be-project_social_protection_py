@@ -7,7 +7,7 @@ from project_social_protection.apps import (
     ProjectSocialProtectionConfig,
 )
 from project_social_protection.models import Project
-from project_social_protection.training_form import validate_training_creation
+from project_social_protection.training_form import validate_training_creation, validate_training_update
 
 MIN_TARGET_BENEFICIARIES = 1
 
@@ -47,7 +47,7 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
 
         errors = []
         start, end = effective('session_start_date'), effective('session_end_date')
-        if start and end and start > end:
+        if (project.project_type if project else data.get('project_type', ProjectSocialProtectionConfig.project_type)) == 'TRAINING' and start and end and start > end:
             errors.append({'message': _('Session end date must not precede session start date.')})
         project_type = project.project_type if project else data.get(
             'project_type', ProjectSocialProtectionConfig.project_type)
@@ -58,6 +58,8 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
             elif len(name) > Project._meta.get_field('name').max_length:
                 errors.append({'message': _('Training name cannot exceed 255 characters.')})
         else:
+            if any(data.get(field) is not None for field in ('session_start_date', 'session_end_date')):
+                errors.append({'message': _('Session dates are only supported for Training.')})
             if not effective('activity') and not effective('activity_id'):
                 errors.append({'message': _('A work project requires an Activity.')})
             days = effective('working_days')
@@ -109,12 +111,13 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
     @classmethod
     def validate_update(cls, user, **data):
         project = Project.objects.get(pk=data['id'])
-        bp = data.get('benefit_plan')
-        errors = validate_project_unique_name(
-            data.get('name', project.name),
-            bp.id if bp else data.get('benefit_plan_id', project.benefit_plan_id),
-            data.get('id'),
-        )
+        errors = []
+        if project.project_type == 'TRAINING':
+            bp = data.get('benefit_plan')
+            errors = validate_project_unique_name(
+                data.get('name', project.name),
+                bp.id if bp else data.get('benefit_plan_id', project.benefit_plan_id), data.get('id'))
+            validate_training_update(data, project)
         errors.extend(cls._validate_session(data, project))
         if project.project_type == 'WORK' and 'target_beneficiaries' in data:
             errors.extend(cls._validate_required_target_beneficiaries(data['target_beneficiaries']))

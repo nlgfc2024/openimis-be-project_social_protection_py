@@ -355,6 +355,10 @@ class ProjectEnrollmentService:
         if enrollment_ids - valid_enrollment_ids:
             raise PermissionDenied(_("unauthorized"))
 
+        if any(enrollment.project.project_type == 'TRAINING' and enrollment.project.status != 'IN_PROGRESS'
+               for enrollment in enrollment_map.values()):
+            raise ValidationError(_('Training attendance can only be recorded while IN_PROGRESS.'))
+
         supplied_ids = {entry['id'] for entry in time_entries_data if entry.get('id')}
         existing_entries = {
             str(row.pk): row for row in time_entry_model.objects.select_for_update().filter(pk__in=supplied_ids)

@@ -51,9 +51,9 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
     def resolve_training_module(self, info, **kwargs):
         from project_social_protection.training_catalogue import require_catalogue_permission
         require_catalogue_permission(info.context.user, 'search')
-        return Activity.objects.filter(
-            is_deleted=False, benefit_plans__is_deleted=False, topics__is_deleted=False,
-        ).distinct().prefetch_related('benefit_plans', 'topics')
+        from project_social_protection.training_catalogue import scoped_training_modules
+        return scoped_training_modules(info.context.user).filter(
+            topics__is_deleted=False).distinct().prefetch_related('benefit_plans', 'topics')
 
     project_programme_modules = graphene.List(
         ProjectTrainingModuleGQLType, benefit_plan_id=graphene.UUID(required=True),
@@ -92,6 +92,9 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
             plan = BenefitPlan.objects.filter(pk=benefit_plan_id, is_deleted=False).first()
             if plan is None:
                 raise ValidationError(_('Programme does not exist.'))
+        if plan is not None:
+            from social_protection.benefit_plan_access import require_benefit_plan_access
+            require_benefit_plan_access(info.context.user, plan.pk)
         return public_training_form(plan)
 
     def resolve_project_deployment_type(self, info):

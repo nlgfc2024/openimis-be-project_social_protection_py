@@ -42,6 +42,8 @@ def generate_project_name(hotspot, activity, benefit_plan, known_place):
 
 
 class CreateProjectInputType(OpenIMISMutation.Input):
+    # Shared inputs are nullable for TRAINING; ProjectValidation still requires
+    # WORK activity, positive working days, location and target beneficiaries.
     district_id = graphene.UUID(required=False)
     session_start_date = graphene.Date(required=False)
     session_end_date = graphene.Date(required=False)

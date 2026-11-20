@@ -22,11 +22,13 @@ from project_social_protection.scope import allowed_project_location_ids
 
 
 class Activity(core_models.HistoryBusinessModel):
-    name = models.CharField(max_length=255, null=False, unique=True)
+    name = models.CharField(max_length=255, null=False)
     benefit_plans = models.ManyToManyField('social_protection.BenefitPlan', blank=True,
                                          related_name='training_modules')
 
     class Meta:
+        constraints = [models.UniqueConstraint(fields=["name"], condition=models.Q(is_deleted=False),
+                                               name="uniq_live_activity_name")]
         db_table = "social_protection_activity"
         verbose_name = "Activity"
         verbose_name_plural = "Activities"
@@ -267,6 +269,9 @@ class AbstractProjectTimeEntry(core_models.HistoryBusinessModel):
     def clean(self):
         enrollment = self._get_enrollment_instance()
         project = enrollment.project
+
+        if project.project_type == ProjectType.TRAINING and project.status != ProjectStatus.IN_PROGRESS:
+            raise ValidationError(_('Training attendance can only be recorded while IN_PROGRESS.'))
 
         if project.project_type == ProjectType.TRAINING and self.percent_complete not in (0, 100):
             raise ValidationError(_("Training topic attendance must be 0 or 100."))

@@ -279,3 +279,35 @@ class TrainingCatalogueTest(ProjectDistrictScopeFixtures, TestCase):
         journal.refresh_from_db()
         self.assertEqual(journal.status, 2, journal.error)
         self.assertTrue(Activity.objects.filter(name='Queued module').exists())
+
+
+    def test_deleted_module_name_can_be_reused_but_live_names_remain_unique(self):
+        original = self.create()
+        self.service.delete(original.pk)
+        replacement = self.create()
+        self.assertNotEqual(original.pk, replacement.pk)
+        original.refresh_from_db()
+        self.assertTrue(original.is_deleted)
+        with self.assertRaises(ValidationError):
+            self.create()
+
+    def test_catalogue_reads_and_writes_respect_programme_assignments(self):
+        from social_protection.models import UserBenefitPlanAccess
+        from social_protection.apps import SocialProtectionConfig
+        from django.core.exceptions import PermissionDenied
+        allowed = self.create()
+        hidden = self.service.save('Hidden module', [self.group_plan.pk], self.topics('H'))
+        if not UserBenefitPlanAccess.objects.filter(user=self.admin, benefit_plan=self.plan, is_deleted=False).exists():
+            assignment = UserBenefitPlanAccess(user=self.admin, benefit_plan=self.plan)
+            assignment.save(user=self.admin)
+        with patch.object(SocialProtectionConfig, 'enable_benefit_plan_access_control', True), patch(
+                'social_protection.benefit_plan_access.has_all_benefit_plans_access', return_value=False):
+            result = self.graphql('{trainingModule {edges {node {name programmes {code}}}}}')
+            self.assertIsNone(result.errors, result.errors)
+            self.assertEqual([row['node']['name'] for row in result.data['trainingModule']['edges']], [allowed.name])
+            with self.assertRaises(PermissionDenied):
+                self.service.delete(hidden.pk)
+            with self.assertRaises(PermissionDenied):
+                self.service.save('Denied module', [self.group_plan.pk], self.topics('D'))
+            result = self.graphql('query {projectTrainingFormConfig(benefitPlanId: "' + str(self.group_plan.pk) + '")}')
+            self.assertTrue(result.errors)

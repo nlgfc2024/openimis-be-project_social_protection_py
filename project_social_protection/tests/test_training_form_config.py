@@ -82,9 +82,8 @@ class TrainingFormConfigurationTest(SimpleTestCase):
                 normalize_training_form(config)
 
     def test_hidden_required_defaults_and_system_fields(self):
-        config = normalize_training_form({'fields': {'name': {'visible': False, 'default': 'Default name'}}})
-        self.assertFalse(config['fields']['name']['visible'])
-        self.assertTrue(config['fields']['name']['required'])
+        with self.assertRaises(ValidationError):
+            normalize_training_form({'fields': {'name': {'visible': False, 'default': 'Default name'}}})
         for field in ('benefitPlan', 'topicCount', 'trainingModules'):
             with self.assertRaises(ValidationError):
                 normalize_training_form({'fields': {field: {'default': 'value'}}})
@@ -258,13 +257,12 @@ class TrainingFormServiceTest(ProjectDistrictScopeFixtures, TestCase):
         self.assertFalse(self.create({'targetBeneficiaries': {'required': False}}, target_beneficiaries=201)['success'])
 
     def test_read_only_defaults_override_supplied_values_and_hidden_values_are_removed(self):
-        result = self.create({'name': {'readOnly': True, 'default': 'Configured name'},
-                              'knownPlace': {'readOnly': True, 'default': 'Default place'},
+        result = self.create({'knownPlace': {'readOnly': True, 'default': 'Default place'},
                               'foreman': {'visible': False}},
                              name='Changed by client', known_place='Changed by client', foreman=self.admin)
         self.assertTrue(result['success'], result)
         project = Project.objects.get(pk=result['data']['id'])
-        self.assertEqual(project.name, 'Configured name')
+        self.assertEqual(project.name, 'Changed by client')
         self.assertEqual(project.known_place, 'Default place')
         self.assertIsNone(project.foreman_id)
 
@@ -323,3 +321,46 @@ class TrainingFormServiceTest(ProjectDistrictScopeFixtures, TestCase):
                 'location': self.ta, 'activity': self.activity, 'working_days': 3})
         self.assertFalse(result['success'])
         self.assertIn('Target beneficiaries is required', str(result))
+
+
+    def test_updates_enforce_effective_required_and_read_only_rules_without_defaults(self):
+        fields = {'knownPlace': {'required': True}, 'targetBeneficiaries': {'required': False}}
+        result = self.create(fields, known_place='Venue')
+        self.assertTrue(result['success'], result)
+        project = Project.objects.get(pk=result['data']['id'])
+        with patch.object(ProjectSocialProtectionConfig, 'training_form', self.configuration(fields)):
+            self.assertFalse(ProjectService(self.admin).update({'id': project.pk, 'known_place': ''})['success'])
+            self.assertTrue(ProjectService(self.admin).update({'id': project.pk, 'target_beneficiaries': None})['success'])
+        readonly = self.configuration({'knownPlace': {'readOnly': True, 'default': 'New default'},
+                                       'targetBeneficiaries': {'required': False}})
+        with patch.object(ProjectSocialProtectionConfig, 'training_form', readonly):
+            self.assertFalse(ProjectService(self.admin).update({'id': project.pk, 'known_place': 'Override'})['success'])
+            self.assertTrue(ProjectService(self.admin).update({'id': project.pk, 'known_place': 'Venue'})['success'])
+        project.refresh_from_db()
+        self.assertEqual(project.known_place, 'Venue')
+
+    def test_training_name_defaults_are_rejected_in_shared_and_programme_configuration(self):
+        for config in ({'fields': {'name': {'default': 'Repeated'}}},
+                       {'programs': {'EXAMPLE': {'fields': {'name': {'default': 'Repeated'}}}}}):
+            with self.assertRaises(ValidationError):
+                normalize_training_form(config)
+
+
+    def test_update_readonly_reference_cannot_be_changed_by_id_or_instance(self):
+        result = self.create()
+        project = Project.objects.get(pk=result['data']['id'])
+        fields = self.configuration({'foreman': {'visible': False}})
+        with patch.object(ProjectSocialProtectionConfig, 'training_form', fields):
+            for values in ({'foreman_id': self.admin.pk}, {'foreman': self.admin}):
+                self.assertFalse(ProjectService(self.admin).update({'id': project.pk, **values})['success'])
+        project.refresh_from_db()
+        self.assertIsNone(project.foreman_id)
+
+    def test_work_updates_skip_training_name_lookup_and_reject_session_dates(self):
+        from datetime import date
+        project = self.projects[0]
+        with patch('project_social_protection.validation.validate_project_unique_name') as names:
+            self.assertTrue(ProjectService(self.admin).update({'id': project.pk, 'known_place': 'Updated'})['success'])
+            names.assert_not_called()
+        self.assertFalse(ProjectService(self.admin).update({
+            'id': project.pk, 'session_start_date': date(2026, 11, 21)})['success'])
