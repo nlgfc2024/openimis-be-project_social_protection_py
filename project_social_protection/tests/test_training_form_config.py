@@ -13,7 +13,8 @@ from project_social_protection.models import Project
 from project_social_protection.schema import Query
 from project_social_protection.services import ProjectService, ProjectEnrollmentService
 from project_social_protection.training_catalogue import TrainingModuleService
-from project_social_protection.training_form import public_training_form
+from project_social_protection.training_form import public_training_form, apply_training_creation_defaults, resolve_default
+from project_social_protection.gql_mutations import CreateProjectMutation
 from project_social_protection.training_form_config import get_training_form, normalize_training_form
 from project_social_protection.tests.test_district_scope import ProjectDistrictScopeFixtures
 
@@ -117,6 +118,71 @@ class TrainingFormServiceTest(ProjectDistrictScopeFixtures, TestCase):
 
     def configuration(self, fields=None):
         return {'fields': {'microCatchment': {'visible': False}, 'hotspot': {'visible': False}, **(fields or {})}}
+
+    def test_graphql_creation_applies_defaults_once_before_location_and_code_generation(self):
+        config = self.configuration({'location': {'readOnly': True, 'default': str(self.ta.uuid)},
+                                     'knownPlace': {'readOnly': True, 'default': 'Configured venue'}})
+        with patch.object(ProjectSocialProtectionConfig, 'project_type', 'TRAINING'), patch.object(
+                ProjectSocialProtectionConfig, 'project_code_enabled', True), patch.object(
+                ProjectSocialProtectionConfig, 'training_form', config), patch(
+                'project_social_protection.services.apply_training_creation_defaults',
+                wraps=apply_training_creation_defaults) as defaults:
+            result = CreateProjectMutation._mutate(self.admin, benefit_plan_id=self.plan.pk,
+                name='Configured GraphQL training', location_id=str(self.b_ta.uuid), known_place='Ignored venue',
+                target_beneficiaries=10)
+        self.assertIsNone(result, result)
+        self.assertEqual(defaults.call_count, 1)
+        project = Project.objects.get(name='Configured GraphQL training')
+        self.assertEqual(project.location_id, self.ta.pk)
+        self.assertEqual(project.known_place, 'Configured venue')
+        self.assertTrue(project.code)
+        from project_social_protection.creation import _normalize_numeric_code
+        prefix = (_normalize_numeric_code(self.a.code, int(ProjectSocialProtectionConfig.project_code_district_digits))
+                  + _normalize_numeric_code(self.ta.code, int(ProjectSocialProtectionConfig.project_code_ta_digits)))
+        self.assertTrue(project.code.startswith(prefix), project.code)
+
+    def test_graphql_creation_with_optional_ta_keeps_district_scope_and_code(self):
+        config = self.configuration({'location': {'visible': False, 'required': False}})
+        with patch.object(ProjectSocialProtectionConfig, 'project_type', 'TRAINING'), patch.object(
+                ProjectSocialProtectionConfig, 'project_code_enabled', True), patch.object(
+                ProjectSocialProtectionConfig, 'training_form', config), patch(
+                'project_social_protection.services.apply_training_creation_defaults',
+                wraps=apply_training_creation_defaults) as defaults:
+            result = CreateProjectMutation._mutate(self.admin, benefit_plan_id=self.plan.pk,
+                name='District GraphQL training', district_id=self.a.uuid, target_beneficiaries=10)
+        self.assertIsNone(result, result)
+        self.assertEqual(defaults.call_count, 1)
+        project = Project.objects.get(name='District GraphQL training')
+        self.assertEqual(project.location_id, self.a.pk)
+        self.assertTrue(project.code)
+
+    def test_code_retry_does_not_reapply_defaults_or_reuse_derived_fields(self):
+        service = ProjectService(self.admin)
+        save = service._save_project
+        attempts = []
+        def collide_once(data):
+            attempts.append(dict(data))
+            return {'success': False, 'detail': 'uniq_project_code'} if len(attempts) == 1 else save(data)
+        with patch.object(ProjectSocialProtectionConfig, 'project_type', 'TRAINING'), patch.object(
+                ProjectSocialProtectionConfig, 'project_code_enabled', True), patch.object(
+                ProjectSocialProtectionConfig, 'training_form', self.configuration()), patch.object(
+                service, '_save_project', side_effect=collide_once), patch(
+                'project_social_protection.services.generate_project_code', side_effect=['318000010001', '318000010002']), patch(
+                'project_social_protection.services.apply_training_creation_defaults',
+                wraps=apply_training_creation_defaults) as defaults:
+            result = service.create({'name': 'Retried Training', 'benefit_plan': self.plan, 'location': self.ta,
+                                     'target_beneficiaries': 10})
+        self.assertTrue(result['success'], result)
+        self.assertEqual(defaults.call_count, 1)
+        self.assertEqual(len(attempts), 2)
+        project = Project.objects.get(pk=result['data']['id'])
+        self.assertEqual(project.code, '318000010002')
+        self.assertEqual(project.working_days, 1)
+
+    def test_dynamic_default_error_uses_translated_template(self):
+        with patch('project_social_protection.training_form._', return_value='Missing active %(field)s record'):
+            with self.assertRaisesMessage(ValidationError, 'Missing active location record'):
+                resolve_default('location', '00000000-0000-0000-0000-000000000000')
 
     def test_optional_hidden_ta_uses_selected_district(self):
         district = self.ta.parent

@@ -2,6 +2,7 @@
 from datetime import date
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext as _
 from core.models import User
 from location.models import Location, MicroCatchment, Hotspot
 from project_social_protection.models import ProjectStatus
@@ -39,9 +40,9 @@ def resolve_default(field, value):
         key = 'uuid' if model is Location else 'pk'
         obj = model.objects.filter(**{key: reference_id(value, model is Location)}).first()
         if obj is None or getattr(obj, 'is_deleted', False) or getattr(obj, 'validity_to', None):
-            raise ValidationError(f'The default for {field} does not reference an active record.')
+            raise ValidationError(_('The default for %(field)s does not reference an active record.') % {'field': field})
         if field == 'district' and obj.type != 'R':
-            raise ValidationError('The district default must reference a District.')
+            raise ValidationError(_('The district default must reference a District.'))
         return obj
     if field in ('sessionStartDate', 'sessionEndDate') and value:
         return date.fromisoformat(value)
@@ -70,7 +71,7 @@ def apply_training_creation_defaults(data):
             data[attribute] = resolve_default(field, rule['default'])
     if not fields['location']['required'] and not (data.get('location') or data.get('location_id')) and district:
         if district.type != 'R':
-            raise ValidationError('The district must reference a District.')
+            raise ValidationError(_('The district must reference a District.'))
         data['location'] = district
     data['status'] = ProjectStatus.PREPARATION
     return data
@@ -105,12 +106,12 @@ def validate_training_creation(data):
         else:
             value = data.get(attribute, data.get(f'{attribute}_id'))
         if rule['required'] and (value is None or value == '' or isinstance(value, str) and not value.strip()):
-            errors.append({'message': f'{field} is required by the Training form configuration.'})
+            errors.append({'message': _('%(field)s is required by the Training form configuration.') % {'field': field}})
         if field == 'district' and value is not None and rule.get('default') is not None and (
                 rule['readOnly'] or not rule['visible']):
             expected = resolve_default('district', rule['default'])
             if value.pk != expected.pk:
-                errors.append({'message': 'Location must belong to the configured read-only district.'})
+                errors.append({'message': _('Location must belong to the configured read-only district.')})
     if errors:
         raise ValidationError(errors)
 
@@ -125,7 +126,7 @@ def public_training_form(benefit_plan=None):
             seen = set()
             def location_value(obj):
                 if obj.pk in seen:
-                    raise ValidationError('Invalid location hierarchy in the Training default.')
+                    raise ValidationError(_('Invalid location hierarchy in the Training default.'))
                 seen.add(obj.pk)
                 return {'uuid': str(obj.uuid), 'id': str(obj.pk), 'name': obj.name, 'code': obj.code,
                         'type': obj.type, 'parent': location_value(obj.parent) if obj.parent else None}

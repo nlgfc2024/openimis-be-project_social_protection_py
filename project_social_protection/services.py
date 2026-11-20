@@ -9,10 +9,12 @@ from django.utils.translation import gettext as _
 from core.services import BaseService
 from core.services.utils import output_exception
 from core.signals import register_service_signal
+from location.models import Location
 from social_protection.models import (
     Beneficiary,
     GroupBeneficiary,
     BeneficiaryStatus,
+    BenefitPlan,
 )
 from project_social_protection.models import (
     Project,
@@ -25,6 +27,7 @@ from project_social_protection.validation import ProjectValidation
 from project_social_protection.apps import ProjectSocialProtectionConfig
 from project_social_protection.training_topics import prepare_training_topics, save_training_topics
 from project_social_protection.training_form import apply_training_creation_defaults
+from project_social_protection.creation import generate_project_code, _resolve_malawi_fields
 from project_social_protection.mutation_scope import (
     authorized_project, require_authenticated, validate_destination,
 )
@@ -43,8 +46,33 @@ class ProjectService(BaseService):
     def create(self, obj_data):
         obj_data = {**obj_data, 'project_type': ProjectSocialProtectionConfig.project_type}
         if obj_data['project_type'] == 'TRAINING':
+            if not obj_data.get('benefit_plan') and obj_data.get('benefit_plan_id'):
+                obj_data['benefit_plan'] = BenefitPlan.objects.get(pk=obj_data.pop('benefit_plan_id'))
             apply_training_creation_defaults(obj_data)
+            if not obj_data.get('location') and obj_data.get('location_id'):
+                location_id = obj_data.pop('location_id')
+                try:
+                    location_uuid = uuid.UUID(str(location_id))
+                except (ValueError, TypeError, AttributeError):
+                    obj_data['location'] = Location.objects.get(pk=location_id)
+                else:
+                    obj_data['location'] = Location.objects.get(uuid=location_uuid)
+            _resolve_malawi_fields(obj_data)
         validate_destination(self.user, obj_data)
+        if obj_data['project_type'] == 'TRAINING' and ProjectSocialProtectionConfig.project_code_enabled:
+            for _attempt in range(5):
+                try:
+                    code = generate_project_code(obj_data['location'], allow_district=True)
+                except ValidationError as error:
+                    return output_exception(model_name='Project', method='create', exception=error)
+                if code is None:
+                    return {'success': False, 'message': _('Project code sequence limit reached for this location.'), 'data': ''}
+                # The save derives working_days; each retry must start from the
+                # same prepared inputs without applying defaults a second time.
+                result = self._save_project({**obj_data, 'code': code})
+                if result['success'] or 'uniq_project_code' not in str(result.get('detail', '')):
+                    return result
+            return {'success': False, 'message': _('Failed to generate a unique project code. Please retry.'), 'data': ''}
         return self._save_project(obj_data)
 
     @register_service_signal("project_service.update")
