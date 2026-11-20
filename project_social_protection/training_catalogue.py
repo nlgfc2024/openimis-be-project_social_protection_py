@@ -6,7 +6,7 @@ from django.utils.translation import gettext as _
 
 from social_protection.models import BenefitPlan
 from project_social_protection.apps import ProjectSocialProtectionConfig
-from project_social_protection.models import Activity, ActivityTopic
+from project_social_protection.models import Activity, ActivityTopic, Project
 
 
 def require_catalogue_permission(user, operation):
@@ -40,7 +40,7 @@ class TrainingModuleService:
         module = None
         if module_id:
             module = Activity.objects.select_for_update().filter(pk=module_id, is_deleted=False).first()
-            if not module:
+            if not module or not module.topics.filter(is_deleted=False).exists() or not module.benefit_plans.filter(is_deleted=False).exists():
                 raise ValidationError(_('Training module does not exist.'))
         if Activity.objects.filter(name=name).exclude(pk=module_id).exists():
             raise ValidationError(_('A module with this name already exists.'))
@@ -108,6 +108,10 @@ class TrainingModuleService:
         require_catalogue_permission(self.user, 'delete')
         module = Activity.objects.select_for_update().filter(pk=module_id, is_deleted=False).first()
         if not module:
+            raise ValidationError(_('Training module does not exist.'))
+        if Project.objects.filter(activity=module, is_deleted=False).exists():
+            raise ValidationError(_('Cannot delete an Activity used by a live project.'))
+        if not module.topics.filter(is_deleted=False).exists() or not module.benefit_plans.filter(is_deleted=False).exists():
             raise ValidationError(_('Training module does not exist.'))
         for topic in module.topics.select_for_update().filter(is_deleted=False):
             topic.is_deleted = True
