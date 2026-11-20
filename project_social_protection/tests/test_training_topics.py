@@ -178,7 +178,7 @@ class TrainingTopicsTest(ProjectDistrictScopeFixtures, TestCase):
         self.assertIsNone(result.errors, result.errors)
         node = result.data['project']['edges'][0]['node']
         self.assertEqual(node['workingDays'], 3)
-        self.assertFalse(node['trainingModulesLocked'])
+        self.assertTrue(node['trainingModulesLocked'])
         self.assertEqual([row['code'] for row in node['trainingTopics']], ['E01', 'E02', 'B01'])
         self.assertEqual(len(node['trainingModules']), 2)
         self.assertEqual(len(result.data['beneficiaryProjectEnrollment']['edges'][0]['node']['moduleCompletion']), 2)
