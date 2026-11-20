@@ -9,6 +9,7 @@ from core.models import UUIDModel, ObjectMutation, MutationLog
 # (BenefitPlan / Beneficiary / GroupBeneficiary) stay in social_protection and are
 # referenced lazily by string so there is no import cycle.
 from social_protection.models import BeneficiaryStatus
+from social_protection.benefit_plan_access import filter_queryset_by_benefit_plan
 from project_social_protection.scope import allowed_project_location_ids
 
 
@@ -76,7 +77,19 @@ class Project(core_models.HistoryBusinessModel):
 
     @classmethod
     def get_queryset(cls, queryset, user):
-        queryset = queryset if queryset is not None else cls.objects.all()
+        # Graphene's Relay node loader supplies the model manager, while list
+        # resolvers and service callers normally supply a QuerySet.  Normalize
+        # both forms before applying helpers that operate on QuerySet.query.
+        queryset = queryset.all() if queryset is not None else cls.objects.all()
+        # Benefit Plan assignment scope is independent of geographic row
+        # security.  In particular it must remain active when ROW_SECURITY is
+        # disabled, while the shared helper remains a no-op when its own feature
+        # flag is disabled.
+        # GraphQL callers pass ResolveInfo so district scope can cache on the
+        # request; the shared Benefit Plan service expects the authenticated
+        # user itself.
+        benefit_plan_user = getattr(getattr(user, "context", None), "user", user)
+        queryset = filter_queryset_by_benefit_plan(queryset, benefit_plan_user)
         location_ids = allowed_project_location_ids(user)
         if location_ids is None:
             return queryset
@@ -86,8 +99,9 @@ class Project(core_models.HistoryBusinessModel):
 
     @classmethod
     def scope_related_queryset(cls, queryset, user, project_field="project_id"):
-        if allowed_project_location_ids(user) is None:
-            return queryset
+        # Always derive related visibility from Project.get_queryset.  Returning
+        # early merely because district scope is unrestricted would bypass the
+        # independent Benefit Plan assignment scope.
         projects = cls.get_queryset(None, user)
         return queryset.filter(**{f"{project_field}__in": projects.values("pk")})
 

@@ -3,6 +3,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils.translation import gettext as _
 
 from location.models import Location, MicroCatchment, Hotspot
+from social_protection.benefit_plan_access import require_benefit_plan_access
 from project_social_protection.models import Project
 from project_social_protection.scope import allowed_project_location_ids
 
@@ -50,11 +51,30 @@ def _related(data, field, model, project=None):
     return value
 
 
+def _benefit_plan_id(data, project=None):
+    """Return the effective destination plan and reject conflicting FK forms."""
+    supplied_plan = data.get('benefit_plan')
+    supplied_id = data.get('benefit_plan_id')
+    if supplied_plan is not None:
+        plan_id = getattr(supplied_plan, 'pk', supplied_plan)
+        if supplied_id is not None and str(plan_id) != str(supplied_id):
+            raise ValidationError(_("Conflicting project Benefit Plan inputs."))
+    elif supplied_id is not None:
+        plan_id = supplied_id
+    else:
+        plan_id = getattr(project, 'benefit_plan_id', None)
+
+    if plan_id is None:
+        raise ValidationError(_("Invalid project Benefit Plan."))
+    return plan_id
+
+
 def validate_destination(user, data, project=None):
     """Check the effective state, including retained relations on partial updates."""
     require_authenticated(user)
     if 'pk' in data or 'uuid' in data or (project is None and 'id' in data):
         raise ValidationError(_("Project identity cannot be supplied or changed."))
+    require_benefit_plan_access(user, _benefit_plan_id(data, project))
     location = _related(data, 'location', Location, project)
     allowed = allowed_project_location_ids(user)
     if location is None or (allowed is not None and location.pk not in allowed):

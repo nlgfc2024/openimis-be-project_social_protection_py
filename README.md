@@ -75,3 +75,25 @@ Missing and inaccessible parents return the same authorization error. Mutation
 services reread assignments, and parent row locks coordinate mutations with
 project transfers. Existing GraphQL operation permissions and geography bypasses
 remain in effect; anonymous callers cannot use those bypasses to mutate data.
+
+## Benefit Plan access dependency
+
+Project Benefit Plan scoping depends on the shared Track 01 access service from
+`openimis-be-social_protection`: `social_protection.benefit_plan_access` and the
+`UserBenefitPlanAccess` model/configuration it uses. Deploy or merge a Project
+revision that imports this service only after the corresponding Social Protection
+revision is available in the same environment. The package dependency in
+`setup.py` names `openimis-be-social_protection`, but it is not version-pinned, so
+release/merge ordering must provide a revision containing that module.
+
+Benefit Plan assignment scope and assigned-district scope are independent and
+are intersected. Disabling geographic `ROW_SECURITY` does not disable Benefit
+Plan assignment checks. Disabling the Benefit Plan access-control feature flag
+preserves the existing district-only behavior. Superusers and users with the
+configured all-plan permission bypass assignment filtering only; GraphQL role
+permissions and district rules continue to apply.
+
+The Project Benefit Plan transfer invariant is independent of assignment-access
+enforcement: even when the feature flag is disabled, including PWP deployments,
+a Project cannot move to another Benefit Plan while it has active individual or
+group enrolments. Soft-deleted enrolments do not block a transfer.
