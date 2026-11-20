@@ -14,7 +14,11 @@ rather than creating new ones.
 
 ## Django app
 
-### Training setup (issue #98)
+```
+project_social_protection
+```
+
+## Training setup
 
 Configure module `project_social_protection`, layer `backend`, using the module's
 existing version. Add `"project_type": "TRAINING"` to its configuration to create
@@ -34,10 +38,6 @@ and `sessionEndDate` support clearing and partial updates; an end date before th
 start date is rejected. WORK name generation is unchanged. This setup step does
 not implement the module/topic catalogue, attendance sheets, or the revised
 training enrolment restrictions; those are subsequent steps.
-
-```
-project_social_protection
-```
 
 ## Depends on
 
