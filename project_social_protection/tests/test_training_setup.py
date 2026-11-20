@@ -60,8 +60,8 @@ class TrainingSetupTest(ProjectDistrictScopeFixtures, TestCase):
         }})
         configuration.start()
         self.addCleanup(configuration.stop)
-        TrainingModuleService(self.admin).save(self.activity.name, [self.plan.pk],
-                                             [{'code': 'SETUP01', 'name': 'Setup topic'}], self.activity.pk)
+        TrainingModuleService(self.admin).save('Setup module', [self.plan.pk],
+                                             [{'code': 'SETUP01', 'name': 'Setup topic'}])
 
     def payload(self, **extra):
         return dict(name='Training example', benefit_plan=self.plan,
