@@ -1,7 +1,7 @@
 import graphene
 import graphene_django_optimizer as gql_optimizer
 from django.contrib.auth.models import AnonymousUser
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from django.utils.translation import gettext as _
 
@@ -37,10 +37,37 @@ from project_social_protection.gql_queries import (
 from project_social_protection.models import Activity, Project
 from project_social_protection.export_mixin import ExportableProjectQueryMixin
 from project_social_protection.validation import validate_project_unique_name
+from project_social_protection.catalogue_mutations import (
+    CreateTrainingModule, UpdateTrainingModule, DeleteTrainingModule,
+)
 
 
 class Query(ExportableProjectQueryMixin, graphene.ObjectType):
+    training_module = OrderedDjangoFilterConnectionField(
+        ActivityGQLType, orderBy=graphene.List(graphene.String),
+    )
+
+    def resolve_training_module(self, info, **kwargs):
+        from project_social_protection.training_catalogue import require_catalogue_permission
+        require_catalogue_permission(info.context.user, 'search')
+        return Activity.objects.filter(
+            is_deleted=False, benefit_plans__is_deleted=False, topics__is_deleted=False,
+        ).distinct().prefetch_related('benefit_plans', 'topics')
+
     project_deployment_type = graphene.String()
+    project_training_form_config = graphene.JSONString(benefit_plan_id=graphene.UUID())
+
+    def resolve_project_training_form_config(self, info, benefit_plan_id=None):
+        if not info.context.user.is_authenticated:
+            raise PermissionDenied(_("unauthorized"))
+        from project_social_protection.training_form import public_training_form
+        plan = None
+        if benefit_plan_id is not None:
+            from social_protection.models import BenefitPlan
+            plan = BenefitPlan.objects.filter(pk=benefit_plan_id, is_deleted=False).first()
+            if plan is None:
+                raise ValidationError(_('Programme does not exist.'))
+        return public_training_form(plan)
 
     def resolve_project_deployment_type(self, info):
         if not info.context.user.is_authenticated:
@@ -236,6 +263,9 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
 
 
 class Mutation(graphene.ObjectType):
+    create_training_module = CreateTrainingModule.Field()
+    update_training_module = UpdateTrainingModule.Field()
+    delete_training_module = DeleteTrainingModule.Field()
     create_project = CreateProjectMutation.Field()
     update_project = UpdateProjectMutation.Field()
     delete_project = DeleteProjectMutation.Field()

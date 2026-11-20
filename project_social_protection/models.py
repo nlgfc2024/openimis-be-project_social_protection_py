@@ -23,11 +23,29 @@ from project_social_protection.scope import allowed_project_location_ids
 
 class Activity(core_models.HistoryBusinessModel):
     name = models.CharField(max_length=255, null=False, unique=True)
+    benefit_plans = models.ManyToManyField('social_protection.BenefitPlan', blank=True,
+                                         related_name='training_modules')
 
     class Meta:
         db_table = "social_protection_activity"
         verbose_name = "Activity"
         verbose_name_plural = "Activities"
+
+
+class ActivityTopic(core_models.HistoryBusinessModel):
+    activity = models.ForeignKey(Activity, models.DO_NOTHING, related_name='topics')
+    code = models.CharField(max_length=64)
+    name = models.CharField(max_length=255)
+    sequence = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ['sequence', 'id']
+        constraints = [
+            models.UniqueConstraint(fields=['code'], condition=models.Q(is_deleted=False),
+                                    name='uniq_live_activity_topic_code'),
+            models.UniqueConstraint(fields=['activity', 'sequence'], condition=models.Q(is_deleted=False),
+                                    name='uniq_live_activity_topic_sequence'),
+        ]
 
 
 class ProjectStatus(models.TextChoices):
@@ -55,9 +73,9 @@ class Project(core_models.HistoryBusinessModel):
         default=ProjectStatus.PREPARATION,
         null=False
     )
-    activity = models.ForeignKey(Activity, models.DO_NOTHING, null=False)
+    activity = models.ForeignKey(Activity, models.DO_NOTHING, null=True, blank=True)
     location = models.ForeignKey('location.Location', models.DO_NOTHING, null=False)
-    target_beneficiaries = models.SmallIntegerField(null=False)
+    target_beneficiaries = models.IntegerField(null=True, blank=True)
     working_days = models.SmallIntegerField(null=False)
     allows_multiple_enrollments = models.BooleanField(default=False)
 
@@ -122,6 +140,21 @@ class Project(core_models.HistoryBusinessModel):
                 fields=['code'],
                 name='uniq_project_code',
             ),
+        ]
+
+
+class ProjectTopic(core_models.HistoryBusinessModel):
+    project = models.ForeignKey(Project, models.DO_NOTHING, related_name='training_topics')
+    topic = models.ForeignKey(ActivityTopic, models.DO_NOTHING, related_name='training_snapshots')
+    sequence = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ['sequence', 'id']
+        constraints = [
+            models.UniqueConstraint(fields=['project', 'sequence'], condition=models.Q(is_deleted=False),
+                                    name='uniq_live_project_topic_sequence'),
+            models.UniqueConstraint(fields=['project', 'topic'], condition=models.Q(is_deleted=False),
+                                    name='uniq_live_project_topic'),
         ]
 
 
@@ -234,6 +267,9 @@ class AbstractProjectTimeEntry(core_models.HistoryBusinessModel):
     def clean(self):
         enrollment = self._get_enrollment_instance()
         project = enrollment.project
+
+        if project.project_type == ProjectType.TRAINING and self.percent_complete not in (0, 100):
+            raise ValidationError(_("Training topic attendance must be 0 or 100."))
 
         if not 1 <= self.day_number <= project.working_days:
             raise ValidationError(

@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.utils.translation import gettext as _
 
 from core.services import BaseService
+from core.services.utils import output_exception
 from core.signals import register_service_signal
 from social_protection.models import (
     Beneficiary,
@@ -22,6 +23,8 @@ from project_social_protection.models import (
 )
 from project_social_protection.validation import ProjectValidation
 from project_social_protection.apps import ProjectSocialProtectionConfig
+from project_social_protection.training_topics import prepare_training_topics, save_training_topics
+from project_social_protection.training_form import apply_training_creation_defaults
 from project_social_protection.mutation_scope import (
     authorized_project, require_authenticated, validate_destination,
 )
@@ -39,8 +42,10 @@ class ProjectService(BaseService):
     @transaction.atomic
     def create(self, obj_data):
         obj_data = {**obj_data, 'project_type': ProjectSocialProtectionConfig.project_type}
+        if obj_data['project_type'] == 'TRAINING':
+            apply_training_creation_defaults(obj_data)
         validate_destination(self.user, obj_data)
-        return super().create(obj_data)
+        return self._save_project(obj_data)
 
     @register_service_signal("project_service.update")
     @transaction.atomic
@@ -49,7 +54,20 @@ class ProjectService(BaseService):
         obj_data.pop('project_type', None)
         project = authorized_project(self.user, obj_data['id'])
         validate_destination(self.user, obj_data, project)
-        return super().update(obj_data)
+        return self._save_project(obj_data, project)
+
+    def _save_project(self, data, project=None):
+        operation = 'update' if project else 'create'
+        try:
+            with transaction.atomic():
+                topics = prepare_training_topics(data, project)
+                result = getattr(super(), operation)(data)
+                if result['success']:
+                    saved = Project.objects.get(pk=result['data']['id'])
+                    save_training_topics(saved, topics, self.user)
+                return result
+        except Exception as error:
+            return output_exception(model_name='Project', method=operation, exception=error)
 
     @register_service_signal("project_service.delete")
     @transaction.atomic
@@ -214,7 +232,8 @@ class ProjectEnrollmentService:
         # If a project is already over target, allow mutations that reduce
         # assigned beneficiaries so users can recover back under the cap.
         if (
-            total_assigned_after_change > project.target_beneficiaries
+            project.target_beneficiaries is not None
+            and total_assigned_after_change > project.target_beneficiaries
             and total_assigned_after_change > total_assigned_before_change
         ):
             msg = _(
@@ -351,6 +370,8 @@ class ProjectEnrollmentService:
                 raise ValidationError(
                     _('Percent complete is required unless clearing an attendance entry.')
                 )
+            if project.project_type == 'TRAINING' and percent not in (0, 100):
+                raise ValidationError(_('Training topic attendance must be 0 or 100.'))
             if not 0 <= percent <= 100:
                 raise ValidationError(
                     _('Percent complete must be between 0 and 100.')

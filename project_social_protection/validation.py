@@ -7,6 +7,7 @@ from project_social_protection.apps import (
     ProjectSocialProtectionConfig,
 )
 from project_social_protection.models import Project
+from project_social_protection.training_form import validate_training_creation
 
 MIN_TARGET_BENEFICIARIES = 1
 
@@ -56,6 +57,12 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
                 errors.append({'message': _('Training name is required.')})
             elif len(name) > Project._meta.get_field('name').max_length:
                 errors.append({'message': _('Training name cannot exceed 255 characters.')})
+        else:
+            if not effective('activity') and not effective('activity_id'):
+                errors.append({'message': _('A work project requires an Activity.')})
+            days = effective('working_days')
+            if not isinstance(days, int) or isinstance(days, bool) or days < 1:
+                errors.append({'message': _('A work project requires positive working days.')})
         return errors
 
     @staticmethod
@@ -89,11 +96,12 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
             data.get('name'), bp.id if bp else data.get('benefit_plan_id')
         )
         errors.extend(cls._validate_session(data))
-        errors.extend(
-            cls._validate_required_target_beneficiaries(
-                data.get('target_beneficiaries')
+        if data.get('project_type', ProjectSocialProtectionConfig.project_type) == 'TRAINING':
+            validate_training_creation(data)
+        else:
+            errors.extend(
+                cls._validate_required_target_beneficiaries(data.get('target_beneficiaries'))
             )
-        )
         errors.extend(cls._validate_target_beneficiaries(data.get('target_beneficiaries')))
         if errors:
             raise ValidationError(errors)
@@ -108,6 +116,8 @@ class ProjectValidation(BaseModelValidation, ObjectExistsValidationMixin):
             data.get('id'),
         )
         errors.extend(cls._validate_session(data, project))
+        if project.project_type == 'WORK' and 'target_beneficiaries' in data:
+            errors.extend(cls._validate_required_target_beneficiaries(data['target_beneficiaries']))
         errors.extend(cls._validate_target_beneficiaries(data.get('target_beneficiaries')))
         if errors:
             raise ValidationError(errors)
