@@ -27,6 +27,7 @@ from project_social_protection.gql_mutations import (
 )
 from project_social_protection.gql_queries import (
     ActivityGQLType,
+    ProjectTrainingModuleGQLType,
     ProjectGQLType,
     ProjectHistoryGQLType,
     BeneficiaryProjectEnrollmentGQLType,
@@ -53,6 +54,30 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
         return Activity.objects.filter(
             is_deleted=False, benefit_plans__is_deleted=False, topics__is_deleted=False,
         ).distinct().prefetch_related('benefit_plans', 'topics')
+
+    project_programme_modules = graphene.List(
+        ProjectTrainingModuleGQLType, benefit_plan_id=graphene.UUID(required=True),
+    )
+
+    def resolve_project_programme_modules(self, info, benefit_plan_id):
+        user = info.context.user
+        config = ProjectSocialProtectionConfig
+        if not user.is_authenticated or not any(user.has_perms(perms) for perms in (
+                config.gql_project_search_perms, config.gql_project_create_perms,
+                config.gql_project_update_perms)):
+            raise PermissionDenied(_("unauthorized"))
+        if config.project_type != 'TRAINING':
+            return []
+        from social_protection.models import BenefitPlan
+        from social_protection.benefit_plan_access import require_benefit_plan_access
+        require_benefit_plan_access(user, benefit_plan_id)
+        if not BenefitPlan.objects.filter(pk=benefit_plan_id, is_deleted=False).exists():
+            raise ValidationError(_('Programme does not exist.'))
+        from django.db.models import Count
+        return list(Activity.objects.filter(is_deleted=False, benefit_plans__pk=benefit_plan_id)
+                    .order_by('name', 'pk').annotate(topic_count=Count(
+                        'topics', filter=Q(topics__is_deleted=False)))
+                    .values('id', 'name', 'topic_count'))
 
     project_deployment_type = graphene.String()
     project_training_form_config = graphene.JSONString(benefit_plan_id=graphene.UUID())

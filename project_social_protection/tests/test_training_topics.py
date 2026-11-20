@@ -213,3 +213,26 @@ class TrainingTopicsTest(ProjectDistrictScopeFixtures, TestCase):
         first = result.data['project']['edges'][0]['node']['trainingTopics'][0]
         self.assertEqual(first, {'sequence': 1, 'code': 'NEW_CODE', 'name': 'Renamed topic',
                                  'module': {'name': 'Renamed module'}})
+
+
+    @patch.object(ProjectSocialProtectionConfig, 'project_type', 'TRAINING')
+    def test_programme_modules_require_project_permissions_not_catalogue_permissions(self):
+        request = RequestFactory().get('/graphql')
+        request.user = self.admin
+        schema = graphene.Schema(query=Query)
+        query = """query($id: UUID!) {
+          projectProgrammeModules(benefitPlanId: $id) {id name topicCount}
+        }"""
+        with patch.object(type(self.admin), 'has_perms',
+                          side_effect=lambda perms: list(perms) == list(ProjectSocialProtectionConfig.gql_project_create_perms)):
+            result = schema.execute(query, variable_values={'id': str(self.plan.pk)}, context_value=request)
+        self.assertIsNone(result.errors, result.errors)
+        self.assertEqual([row['topicCount'] for row in result.data['projectProgrammeModules']], [2, 1])
+        other = schema.execute(query, variable_values={'id': str(self.group_plan.pk)}, context_value=request)
+        self.assertEqual(other.data['projectProgrammeModules'], [])
+        with patch.object(type(self.admin), 'has_perms', return_value=False):
+            denied = schema.execute(query, variable_values={'id': str(self.plan.pk)}, context_value=request)
+        self.assertTrue(denied.errors)
+        with patch.object(ProjectSocialProtectionConfig, 'project_type', 'WORK'):
+            work = schema.execute(query, variable_values={'id': str(self.plan.pk)}, context_value=request)
+        self.assertEqual(work.data['projectProgrammeModules'], [])
