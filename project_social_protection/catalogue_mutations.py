@@ -1,10 +1,10 @@
+"""Catalogue mutations use the shared journal, CSRF and error-handling pipeline."""
 import graphene
-from django.core.exceptions import ValidationError
-from core.schema import _check_csrf_token
 
-from project_social_protection.gql_queries import ActivityGQLType
-from project_social_protection.training_catalogue import TrainingModuleService
-from project_social_protection.mutation_scope import require_authenticated
+from core.gql.gql_mutations.base_mutation import BaseMutation
+from core.schema import OpenIMISMutation
+from project_social_protection.models import Activity
+from project_social_protection.training_catalogue import TrainingModuleService, require_catalogue_permission
 
 
 class TrainingTopicInput(graphene.InputObjectType):
@@ -13,61 +13,58 @@ class TrainingTopicInput(graphene.InputObjectType):
     name = graphene.String(required=True)
 
 
-class TrainingModuleInput(graphene.InputObjectType):
+class TrainingModuleInput(OpenIMISMutation.Input):
     name = graphene.String(required=True)
     programme_ids = graphene.List(graphene.NonNull(graphene.UUID), required=True)
     topics = graphene.List(graphene.NonNull(TrainingTopicInput), required=True)
 
 
-class TrainingModuleResult(graphene.ObjectType):
-    success = graphene.Boolean(required=True)
-    errors = graphene.List(graphene.String, required=True)
-    module = graphene.Field(ActivityGQLType)
+class CreateTrainingModule(BaseMutation):
+    _mutation_class = 'CreateTrainingModule'
+    _mutation_module = 'project_social_protection'
+    _model = Activity
+
+    class Input(TrainingModuleInput):
+        pass
+
+    @classmethod
+    def _validate_mutation(cls, user, **data):
+        require_catalogue_permission(user, 'create')
+
+    @classmethod
+    def _mutate(cls, user, **data):
+        TrainingModuleService(user).save(data['name'], data['programme_ids'], data['topics'])
 
 
-def save_module(info, input, module_id=None):
-    require_authenticated(info.context.user)
-    _check_csrf_token(info.context)
-    try:
-        module = TrainingModuleService(info.context.user).save(
-            input['name'], input['programme_ids'], input['topics'], module_id)
-        return TrainingModuleResult(success=True, errors=[], module=module)
-    except ValidationError as error:
-        return TrainingModuleResult(success=False, errors=error.messages)
+class UpdateTrainingModule(BaseMutation):
+    _mutation_class = 'UpdateTrainingModule'
+    _mutation_module = 'project_social_protection'
+    _model = Activity
 
-
-class CreateTrainingModule(graphene.Mutation):
-    class Arguments:
-        input = TrainingModuleInput(required=True)
-
-    Output = TrainingModuleResult
-
-    def mutate(self, info, input):
-        return save_module(info, input)
-
-
-class UpdateTrainingModule(graphene.Mutation):
-    class Arguments:
-        id = graphene.UUID(required=True)
-        input = TrainingModuleInput(required=True)
-
-    Output = TrainingModuleResult
-
-    def mutate(self, info, id, input):
-        return save_module(info, input, id)
-
-
-class DeleteTrainingModule(graphene.Mutation):
-    class Arguments:
+    class Input(TrainingModuleInput):
         id = graphene.UUID(required=True)
 
-    Output = TrainingModuleResult
+    @classmethod
+    def _validate_mutation(cls, user, **data):
+        require_catalogue_permission(user, 'update')
 
-    def mutate(self, info, id):
-        require_authenticated(info.context.user)
-        _check_csrf_token(info.context)
-        try:
-            module = TrainingModuleService(info.context.user).delete(id)
-            return TrainingModuleResult(success=True, errors=[], module=module)
-        except ValidationError as error:
-            return TrainingModuleResult(success=False, errors=error.messages)
+    @classmethod
+    def _mutate(cls, user, **data):
+        TrainingModuleService(user).save(data['name'], data['programme_ids'], data['topics'], data['id'])
+
+
+class DeleteTrainingModule(BaseMutation):
+    _mutation_class = 'DeleteTrainingModule'
+    _mutation_module = 'project_social_protection'
+    _model = Activity
+
+    class Input(OpenIMISMutation.Input):
+        id = graphene.UUID(required=True)
+
+    @classmethod
+    def _validate_mutation(cls, user, **data):
+        require_catalogue_permission(user, 'delete')
+
+    @classmethod
+    def _mutate(cls, user, **data):
+        TrainingModuleService(user).delete(data['id'])

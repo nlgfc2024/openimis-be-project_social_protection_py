@@ -25,6 +25,13 @@ and ordered topics. Module searches use `gql_activity_search_perms` (208001);
 create/update/delete use `gql_activity_create_perms` (208002),
 `gql_activity_update_perms` (208003), and `gql_activity_delete_perms` (208004).
 All mutations enforce their right in the service as well as the UI.
+Catalogue writes use the standard OpenIMIS mutation journal and CSRF/error
+pipeline. Create/update/delete return `internalId` and `clientMutationId`;
+clients wait for the mutation log's final status before reporting success.
+Each operation accepts its own Relay input (`CreateTrainingModuleInput`,
+`UpdateTrainingModuleInput`, or `DeleteTrainingModuleInput`); update/delete IDs
+belong inside `input`. Updates reject ordinary WORK Activities, and deletion
+rejects Activities referenced by live projects. Unused modules are soft-deleted.
 
 `trainingModule(benefitPlans_Id: "<programme UUID>")` returns live catalogue modules
 with `programmes` and ordered `topics`. `createTrainingModule`,
