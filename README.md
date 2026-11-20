@@ -194,7 +194,7 @@ services reread assignments, and parent row locks coordinate mutations with
 project transfers. Existing GraphQL operation permissions and geography bypasses
 remain in effect; anonymous callers cannot use those bypasses to mutate data.
 
-Programme-specific Training fields use `training_form.programs.202646268.fields` for
+Programme-specific Training fields use `training_form.programs.<RMEP_PROGRAM_CODE>.fields` for
 RMEP and `training_form.programs.<UPG_PROGRAM_CODE>.fields` for UPG. Keys match the selected
 BenefitPlan's `code` value. Replace `<UPG_PROGRAM_CODE>` with the actual UPG code.
 Each programme overrides shared `training_form.fields` property by property;
@@ -228,3 +228,25 @@ The configuration example uses placeholder programme codes.
 
 Migrations 0009/0011/0012 are retained because they have already been applied
 locally. Migration 0013 changes only name uniqueness, without deleting records.
+
+## Benefit Plan access dependency
+
+Project Benefit Plan scoping depends on the shared Track 01 access service from
+`openimis-be-social_protection`: `social_protection.benefit_plan_access` and the
+`UserBenefitPlanAccess` model/configuration it uses. Deploy or merge a Project
+revision that imports this service only after the corresponding Social Protection
+revision is available in the same environment. The package dependency in
+`setup.py` names `openimis-be-social_protection`, but it is not version-pinned, so
+release/merge ordering must provide a revision containing that module.
+
+Benefit Plan assignment scope and assigned-district scope are independent and
+are intersected. Disabling geographic `ROW_SECURITY` does not disable Benefit
+Plan assignment checks. Disabling the Benefit Plan access-control feature flag
+preserves the existing district-only behavior. Superusers and users with the
+configured all-plan permission bypass assignment filtering only; GraphQL role
+permissions and district rules continue to apply.
+
+The Project Benefit Plan transfer invariant is independent of assignment-access
+enforcement: even when the feature flag is disabled, including PWP deployments,
+a Project cannot move to another Benefit Plan while it has active individual or
+group enrolments. Soft-deleted enrolments do not block a transfer.

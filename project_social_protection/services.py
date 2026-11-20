@@ -82,6 +82,32 @@ class ProjectService(BaseService):
         obj_data.pop('project_type', None)
         project = authorized_project(self.user, obj_data['id'])
         validate_destination(self.user, obj_data, project)
+
+        destination_plan = obj_data.get('benefit_plan')
+        destination_plan_id = getattr(
+            destination_plan,
+            'pk',
+            obj_data.get('benefit_plan_id'),
+        )
+        is_plan_transfer = (
+            destination_plan_id is not None
+            and str(destination_plan_id) != str(project.benefit_plan_id)
+        )
+        if is_plan_transfer and (
+            BeneficiaryProjectEnrollment.objects.filter(
+                project=project,
+                is_deleted=False,
+            ).exists()
+            or GroupBeneficiaryProjectEnrollment.objects.filter(
+                project=project,
+                is_deleted=False,
+            ).exists()
+        ):
+            raise ValidationError(_(
+                "A Project with individual or group enrolments cannot be moved "
+                "to another Benefit Plan."
+            ))
+
         return self._save_project(obj_data, project)
 
     def _save_project(self, data, project=None):

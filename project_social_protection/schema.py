@@ -13,6 +13,7 @@ from location.models import extend_allowed_locations, Location
 from social_protection.gql_queries import (
     BeneficiaryGQLType, GroupBeneficiaryGQLType,
 )
+from social_protection.benefit_plan_access import require_benefit_plan_access
 
 from project_social_protection.apps import ProjectSocialProtectionConfig
 from project_social_protection.gql_mutations import (
@@ -200,6 +201,10 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
         perms = ProjectSocialProtectionConfig.gql_project_search_perms
         if not info.context.user.has_perms(perms):
             raise PermissionDenied(_("unauthorized"))
+        # Do not expose whether a project name exists in an inaccessible plan.
+        require_benefit_plan_access(
+            info.context.user, kwargs['benefit_plan_id']
+        )
         errors = validate_project_unique_name(
             kwargs['project_name'], kwargs['benefit_plan_id']
         )
