@@ -43,15 +43,15 @@ When TA is optional and omitted, the selected District is saved as the Training'
 geographic scope. Keep District available or supply its default UUID. District-only
 Training codes use zeroes in the TA segment; geographic access checks still apply.
 Programme comes from the route, status starts in PREPARATION and topic count is
-derived, so those three stay read-only. Hidden/read-only modules without a default
-use all programme modules. The generated code is not a creation input.
+derived, so those three stay read-only. Training creation always uses all programme
+modules; module defaults and module-list inputs are not accepted. The generated
+code is not a creation input.
 
 Text/numeric defaults use JSON strings/numbers. Dates use `YYYY-MM-DD` or null.
 Location/district defaults use raw location UUIDs; foreman/supervisor use raw User
 UUIDs; micro-catchment/hotspot use their database IDs. Reference objects with
 `id`/`uuid` are also accepted, but labels are resolved from actual records.
-`trainingModules.default` is an ordered array of raw module UUIDs. Location scope
-and module/programme membership are still validated on save.
+Location scope and programme/module availability are still validated on save.
 
 `projectTrainingFormConfig` exposes only the effective form settings and resolved
 default labels to signed-in clients. The create page fetches it from the backend,

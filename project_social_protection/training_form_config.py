@@ -47,7 +47,7 @@ def _normalize_training_fields(raw=None, maximum_target=200):
             raise ValidationError(f'{name} is controlled by the system and must remain read-only.')
         if 'default' in rule:
             value = rule['default']
-            if name in ('benefitPlan', 'topicCount'):
+            if name in ('benefitPlan', 'topicCount', 'trainingModules'):
                 raise ValidationError(f'{name} is derived from the programme or topics and cannot have a default.')
             if name == 'status' and value != 'PREPARATION':
                 raise ValidationError('A new Training must start in PREPARATION.')
@@ -80,15 +80,6 @@ def _normalize_training_fields(raw=None, maximum_target=200):
                     UUID(str(identity))
                 except (ValueError, TypeError, AttributeError):
                     raise ValidationError(f'{name}.default must contain a raw UUID.')
-            if name == 'trainingModules' and (not isinstance(value, list) or not value
-                    or any(not isinstance(item, (str, dict)) or isinstance(item, dict) and not item.get('id') for item in value)):
-                raise ValidationError('trainingModules.default must be a nonempty list of module IDs.')
-            if name == 'trainingModules':
-                for module in value:
-                    try:
-                        UUID(str(module.get('id') if isinstance(module, dict) else module))
-                    except (ValueError, TypeError, AttributeError):
-                        raise ValidationError('trainingModules.default must contain raw module UUIDs.')
         if name not in ('district', 'trainingModules', 'status', 'benefitPlan', 'topicCount') and effective['required']:
             if (not effective['visible'] or effective['readOnly']) and effective.get('default') in (None, ''):
                 raise ValidationError(f'{name} needs a default when required and hidden/read-only.')

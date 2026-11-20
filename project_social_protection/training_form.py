@@ -4,7 +4,7 @@ from datetime import date
 from django.core.exceptions import ValidationError
 from core.models import User
 from location.models import Location, MicroCatchment, Hotspot
-from project_social_protection.models import Activity, ProjectStatus
+from project_social_protection.models import ProjectStatus
 from project_social_protection.training_form_config import get_training_form
 
 
@@ -12,7 +12,7 @@ BINDINGS = {
     'name': 'name', 'sessionStartDate': 'session_start_date', 'sessionEndDate': 'session_end_date',
     'location': 'location', 'microCatchment': 'micro_catchment', 'hotspot': 'hotspot',
     'knownPlace': 'known_place', 'targetBeneficiaries': 'target_beneficiaries',
-    'foreman': 'foreman', 'supervisor': 'supervisor', 'trainingModules': 'module_ids',
+    'foreman': 'foreman', 'supervisor': 'supervisor',
 }
 
 
@@ -43,8 +43,6 @@ def resolve_default(field, value):
         if field == 'district' and obj.type != 'R':
             raise ValidationError('The district default must reference a District.')
         return obj
-    if field == 'trainingModules':
-        return [reference_id(item) for item in value]
     if field in ('sessionStartDate', 'sessionEndDate') and value:
         return date.fromisoformat(value)
     return value
@@ -137,12 +135,6 @@ def public_training_form(benefit_plan=None):
                                'name': value.name, 'code': value.code}
         elif field in ('foreman', 'supervisor'):
             rule['default'] = {'id': str(value.pk), 'username': value.username}
-        elif field == 'trainingModules':
-            modules = {str(module.pk): module for module in Activity.objects.filter(pk__in=value, is_deleted=False)}
-            if len(modules) != len(set(map(str, value))):
-                raise ValidationError('A default Training module does not exist.')
-            rule['default'] = [{'id': str(pk), 'name': modules[str(pk)].name,
-                                'topicCount': modules[str(pk)].topics.filter(is_deleted=False).count()} for pk in value]
         elif isinstance(value, date):
             rule['default'] = value.isoformat()
     return config

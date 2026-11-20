@@ -84,7 +84,7 @@ class TrainingFormConfigurationTest(SimpleTestCase):
         config = normalize_training_form({'fields': {'name': {'visible': False, 'default': 'Default name'}}})
         self.assertFalse(config['fields']['name']['visible'])
         self.assertTrue(config['fields']['name']['required'])
-        for field in ('benefitPlan', 'topicCount'):
+        for field in ('benefitPlan', 'topicCount', 'trainingModules'):
             with self.assertRaises(ValidationError):
                 normalize_training_form({'fields': {field: {'default': 'value'}}})
 
@@ -207,10 +207,9 @@ class TrainingFormServiceTest(ProjectDistrictScopeFixtures, TestCase):
         self.assertFalse(result['success'])
         self.assertIn('knownPlace is required', str(result))
 
-    def test_location_and_module_defaults_are_resolved(self):
+    def test_location_defaults_and_automatic_programme_modules_are_resolved(self):
         result = self.create({'location': {'readOnly': True, 'default': str(self.ta.uuid)},
-                              'trainingModules': {'readOnly': True, 'default': [str(self.module.pk)]}},
-                             location=self.b_ta, module_ids=[])
+                              'trainingModules': {'readOnly': True}}, location=self.b_ta)
         self.assertTrue(result['success'], result)
         project = Project.objects.get(pk=result['data']['id'])
         self.assertEqual(project.location_id, self.ta.pk)
@@ -224,7 +223,7 @@ class TrainingFormServiceTest(ProjectDistrictScopeFixtures, TestCase):
             self.assertIn('configured read-only district', str(result))
 
     def test_hidden_module_selection_uses_all_programme_modules(self):
-        result = self.create({'trainingModules': {'visible': False}}, module_ids=[])
+        result = self.create({'trainingModules': {'visible': False}})
         self.assertTrue(result['success'], result)
         self.assertEqual(Project.objects.get(pk=result['data']['id']).working_days, 1)
 
@@ -238,12 +237,10 @@ class TrainingFormServiceTest(ProjectDistrictScopeFixtures, TestCase):
 
     def test_public_configuration_resolves_labels_and_requires_sign_in(self):
         config = self.configuration({'location': {'default': str(self.ta.uuid)},
-                                     'trainingModules': {'default': [str(self.module.pk)]},
                                      'foreman': {'default': str(self.admin.pk)}})
         with patch.object(ProjectSocialProtectionConfig, 'training_form', config):
             public = public_training_form()
             self.assertEqual(public['fields']['location']['default']['name'], self.ta.name)
-            self.assertEqual(public['fields']['trainingModules']['default'][0]['topicCount'], 1)
             request = RequestFactory().post('/graphql')
             request.user = self.admin
             schema = graphene.Schema(query=Query)
