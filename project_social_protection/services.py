@@ -362,12 +362,12 @@ class ProjectEnrollmentService:
                 continue
 
             percent = entry.get('percent_complete')
-            if project.project_type == 'TRAINING' and percent not in (0, 100):
-                raise ValidationError(_('Training topic attendance must be 0 or 100.'))
             if percent is None:
                 raise ValidationError(
                     _('Percent complete is required unless clearing an attendance entry.')
                 )
+            if project.project_type == 'TRAINING' and percent not in (0, 100):
+                raise ValidationError(_('Training topic attendance must be 0 or 100.'))
             if not 0 <= percent <= 100:
                 raise ValidationError(
                     _('Percent complete must be between 0 and 100.')

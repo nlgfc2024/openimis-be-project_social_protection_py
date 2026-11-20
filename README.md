@@ -18,27 +18,28 @@ rather than creating new ones.
 project_social_protection
 ```
 
-## Training topic snapshots
+## Training topic lists
 
-Training create/update accepts ordered `moduleIds` and does not accept work
-`activityId` or manually entered `workingDays`. Omission on create selects all
-live modules of the programme, ordered by name. Every selected module must have
-live topics and belong to the programme. WORK still requires its Activity and
-positive working days.
+TRAINING input accepts no module list, work Activity or manually entered working
+days. Creation includes every live module linked to the programme, ordered by
+catalogue name and ID, and every live topic in module order. Programmes without
+modules, or with a module without topics, are rejected. WORK keeps its Activity
+and working-day requirements.
 
-Migration `0009_training_topic_snapshots` adds audited ProjectTopic snapshots.
-The service copies topic codes/names, module names, and topic order and derives
-working days from the count. Catalogue edits and deletions do not change existing
-snapshots. Module changes atomically replace the snapshot until attendance is
-first recorded; cleared/deleted attendance remains in history and keeps the
-mapping locked. Existing trainings with attendance but no snapshot require a
-separate reviewed legacy mapping; an edit never silently reinterprets old columns.
+Each ProjectTopic stores only the Training, catalogue topic and fixed sequence.
+Migration `0011_projecttopic_catalogue_links` removes copied labels and module
+links from current and historical rows; topic links and sequence are preserved.
+Topic code/name and module name are read from the linked catalogue topic/activity,
+so renames appear on existing Trainings. Adding/removing/reordering catalogue
+topics, adding programme modules and unrelated Training updates never change an
+existing Training's membership or attendance-column order. Soft-deleted catalogue
+topics retain their existing Training links. A Training's programme cannot be
+changed after creation, and legacy Trainings are never silently backfilled.
 
-Project GraphQL exposes `trainingModules`, `trainingTopics`, and
-`trainingModulesLocked`. Enrollment `moduleCompletion` uses the shared
-`training_module_completion` helper to return ticked/total topics and percentage
-per module. TRAINING time entries accept only 0 or 100; WORK percentages remain
-unchanged. The topic attendance grid is the next UI step.
+GraphQL exposes trainingModules, trainingTopics and per-module completion. The
+shared training_module_completion helper uses the fixed topic sequences and live
+catalogue labels. TRAINING attendance accepts only 0 or 100; WORK percentages
+remain unchanged. A missing percentage reports the required-value error first.
 
 ## Training module catalogue
 

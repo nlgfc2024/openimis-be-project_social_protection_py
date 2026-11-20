@@ -65,8 +65,14 @@ class ProjectTopicGQLType(graphene.ObjectType):
     name = graphene.String()
     module = graphene.Field(ProjectTrainingModuleGQLType)
 
+    def resolve_code(self, info):
+        return self.topic.code
+
+    def resolve_name(self, info):
+        return self.topic.name
+
     def resolve_module(self, info):
-        return {'id': self.module_id, 'name': self.module_name}
+        return {'id': self.topic.activity_id, 'name': self.topic.activity.name}
 
 
 class TrainingModuleCompletionGQLType(graphene.ObjectType):
@@ -206,7 +212,7 @@ class ProjectGQLType(ProjectReadScopeMixin, DjangoObjectType):
 
     def resolve_training_topics(self, info):
         require_project_read(info)
-        return self.training_topics.filter(is_deleted=False)
+        return self.training_topics.filter(is_deleted=False).select_related('topic__activity')
 
     def resolve_training_modules(self, info):
         require_project_read(info)
