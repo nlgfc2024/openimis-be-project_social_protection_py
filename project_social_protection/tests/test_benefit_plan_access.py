@@ -363,6 +363,43 @@ class ProjectBenefitPlanAccessTest(ProjectDistrictScopeFixtures, TestCase):
         self.projects[0].refresh_from_db()
         self.assertEqual(self.projects[0].benefit_plan_id, self.plan.pk)
 
+    def test_active_enrolments_block_transfer_when_access_control_is_disabled(self):
+        SocialProtectionConfig.enable_benefit_plan_access_control = False
+
+        with self.assertRaisesRegex(
+            ValidationError,
+            "with individual or group enrolments cannot be moved",
+        ):
+            ProjectService(self.reader).update({
+                "id": self.projects[0].pk,
+                "benefit_plan": self.group_plan,
+            })
+
+        self.projects[0].refresh_from_db()
+        self.assertEqual(self.projects[0].benefit_plan_id, self.plan.pk)
+
+    def test_soft_deleted_enrolments_do_not_block_plan_transfer(self):
+        self.add_group_plan_access()
+        service = ProjectService(self.reader)
+        transfers = [
+            (self.enrolments[0], self.projects[0], self.group_plan),
+            (self.group_enrolments[0], self.group_projects[0], self.plan),
+        ]
+
+        for enrolment, project, destination_plan in transfers:
+            with self.subTest(project=project.code):
+                enrolment.is_deleted = True
+                enrolment.save(username=self.admin.username)
+
+                result = service.update({
+                    "id": project.pk,
+                    "benefit_plan": destination_plan,
+                })
+
+                self.assertTrue(result["success"])
+                project.refresh_from_db()
+                self.assertEqual(project.benefit_plan_id, destination_plan.pk)
+
     def test_project_without_enrolments_can_change_plan_with_both_accesses(self):
         self.add_group_plan_access()
         project = self.project("PS-NO-ENROL", self.villages[0])

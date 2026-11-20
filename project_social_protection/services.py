@@ -57,8 +57,14 @@ class ProjectService(BaseService):
             and str(destination_plan_id) != str(project.benefit_plan_id)
         )
         if is_plan_transfer and (
-            BeneficiaryProjectEnrollment.objects.filter(project=project).exists()
-            or GroupBeneficiaryProjectEnrollment.objects.filter(project=project).exists()
+            BeneficiaryProjectEnrollment.objects.filter(
+                project=project,
+                is_deleted=False,
+            ).exists()
+            or GroupBeneficiaryProjectEnrollment.objects.filter(
+                project=project,
+                is_deleted=False,
+            ).exists()
         ):
             raise ValidationError(_(
                 "A Project with individual or group enrolments cannot be moved "

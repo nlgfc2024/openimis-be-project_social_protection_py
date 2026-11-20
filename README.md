@@ -92,3 +92,8 @@ Plan assignment checks. Disabling the Benefit Plan access-control feature flag
 preserves the existing district-only behavior. Superusers and users with the
 configured all-plan permission bypass assignment filtering only; GraphQL role
 permissions and district rules continue to apply.
+
+The Project Benefit Plan transfer invariant is independent of assignment-access
+enforcement: even when the feature flag is disabled, including PWP deployments,
+a Project cannot move to another Benefit Plan while it has active individual or
+group enrolments. Soft-deleted enrolments do not block a transfer.
