@@ -134,7 +134,8 @@ class TrainingTopicsTest(ProjectDistrictScopeFixtures, TestCase):
         enrollment = self.enrollment(project)
         BeneficiaryProjectTimeEntry(enrollment=enrollment, day_number=1, percent_complete=0).save(user=self.admin)
         self.assertTrue(has_training_attendance(project))
-        self.assertFalse(ProjectService(self.admin).update({'id': project.pk, 'benefit_plan': self.group_plan})['success'])
+        with self.assertRaisesMessage(ValidationError, 'cannot be moved'):
+            ProjectService(self.admin).update({'id': project.pk, 'benefit_plan': self.group_plan})
 
     def test_bulk_training_attendance_is_binary_and_all_or_nothing(self):
         project = self.create()

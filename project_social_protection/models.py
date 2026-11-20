@@ -23,7 +23,7 @@ from project_social_protection.scope import allowed_project_location_ids
 
 
 class Activity(core_models.HistoryBusinessModel):
-    name = models.CharField(max_length=255, null=False)
+    name = models.CharField(max_length=255, null=False, db_index=True)
     benefit_plans = models.ManyToManyField('social_protection.BenefitPlan', blank=True,
                                          related_name='training_modules')
 
