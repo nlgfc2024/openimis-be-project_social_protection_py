@@ -124,7 +124,6 @@ def generate_project_name(hotspot, activity, benefit_plan, known_place):
 
 class CreateProjectInputType(OpenIMISMutation.Input):
     district_id = graphene.UUID(required=False)
-    module_ids = graphene.List(graphene.NonNull(graphene.UUID), required=False)
     session_start_date = graphene.Date(required=False)
     session_end_date = graphene.Date(required=False)
     benefit_plan_id = graphene.ID(required=True)
@@ -248,7 +247,6 @@ class CreateProjectMutation(
 
 
 class UpdateProjectInputType(OpenIMISMutation.Input):
-    module_ids = graphene.List(graphene.NonNull(graphene.UUID), required=False)
     session_start_date = graphene.Date(required=False)
     session_end_date = graphene.Date(required=False)
     id = graphene.UUID(required=True)

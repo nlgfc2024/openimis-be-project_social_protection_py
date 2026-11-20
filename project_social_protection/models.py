@@ -146,11 +146,7 @@ class Project(core_models.HistoryBusinessModel):
 class ProjectTopic(core_models.HistoryBusinessModel):
     project = models.ForeignKey(Project, models.DO_NOTHING, related_name='training_topics')
     topic = models.ForeignKey(ActivityTopic, models.DO_NOTHING, related_name='training_snapshots')
-    module = models.ForeignKey(Activity, models.DO_NOTHING, related_name='training_topic_snapshots')
     sequence = models.PositiveIntegerField()
-    code = models.CharField(max_length=64)
-    name = models.CharField(max_length=255)
-    module_name = models.CharField(max_length=255)
 
     class Meta:
         ordering = ['sequence', 'id']
