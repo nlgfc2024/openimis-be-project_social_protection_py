@@ -15,6 +15,7 @@ from project_social_protection.gql_mutations import (
 from project_social_protection.models import Project
 from project_social_protection.schema import Query
 from project_social_protection.services import ProjectService
+from project_social_protection.training_catalogue import TrainingModuleService
 from project_social_protection.tests.test_district_scope import ProjectDistrictScopeFixtures
 
 
@@ -52,9 +53,19 @@ class TrainingConfigurationTest(SimpleTestCase):
 
 @override_settings(ROW_SECURITY=False)
 class TrainingSetupTest(ProjectDistrictScopeFixtures, TestCase):
+    def setUp(self):
+        super().setUp()
+        configuration = patch.object(ProjectSocialProtectionConfig, 'training_form', {'fields': {
+            'microCatchment': {'required': False}, 'hotspot': {'required': False},
+        }})
+        configuration.start()
+        self.addCleanup(configuration.stop)
+        TrainingModuleService(self.admin).save('Setup module', [self.plan.pk],
+                                             [{'code': 'SETUP01', 'name': 'Setup topic'}])
+
     def payload(self, **extra):
-        return dict(name='Training example', benefit_plan=self.plan, activity=self.activity,
-                    location=self.ta, target_beneficiaries=10, working_days=5, **extra)
+        return dict(name='Training example', benefit_plan=self.plan,
+                    location=self.ta, target_beneficiaries=10, **extra)
 
     def create_training(self, **extra):
         with patch.object(ProjectSocialProtectionConfig, 'project_type', 'TRAINING'):
@@ -88,7 +99,7 @@ class TrainingSetupTest(ProjectDistrictScopeFixtures, TestCase):
         other.save(username=self.admin.username)
         result = ProjectService(self.admin).update({'id': other.pk, 'benefit_plan': self.plan})
         self.assertFalse(result['success'], result)
-        self.assertIn('already exists', str(result))
+        self.assertIn('programme cannot change', str(result))
         with patch.object(ProjectSocialProtectionConfig, 'project_type', 'TRAINING'):
             duplicate = ProjectService(self.admin).create(self.payload())
         self.assertFalse(duplicate['success'], duplicate)
@@ -120,7 +131,8 @@ class TrainingSetupTest(ProjectDistrictScopeFixtures, TestCase):
                     name='Manual training', target_beneficiaries=10, working_days=5)
         with patch.object(ProjectSocialProtectionConfig, 'project_code_enabled', False), patch.object(
                 ProjectSocialProtectionConfig, 'project_type', 'TRAINING'):
-            self.assertIsNone(CreateProjectMutation._mutate(self.admin, **data))
+            training_data = {key: value for key, value in data.items() if key not in ('activity_id', 'working_days')}
+            self.assertIsNone(CreateProjectMutation._mutate(self.admin, **training_data))
         training = Project.objects.get(name='Manual training')
         with patch.object(ProjectSocialProtectionConfig, 'project_type', 'WORK'):
             self.assertIsNone(UpdateProjectMutation._mutate(self.admin, id=training.pk, name='Renamed training'))

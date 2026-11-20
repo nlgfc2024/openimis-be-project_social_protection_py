@@ -18,6 +18,75 @@ rather than creating new ones.
 project_social_protection
 ```
 
+## Configurable Training creation form
+
+In Django admin, edit the ModuleConfiguration for module
+`project_social_protection`, layer **backend** (stored as `be`), version **1.0.0**.
+Merge `training_form` into its existing JSON; retain other deployment settings.
+The complete pasteable example is [training-form-config.example.json](training-form-config.example.json).
+It hides micro-catchment/hotspot/foreman/supervisor and makes target beneficiaries
+optional; it is an example and is not automatically installed.
+
+Every Training create field accepts `visible`, `required`, `readOnly`, and,
+where applicable, `default`. Unspecified settings retain the existing form.
+Hiding an optional field makes it optional unless `required` is explicitly set;
+a hidden/read-only required input needs a valid default. Unknown fields/options,
+non-boolean flags and incompatible rules are rejected when the configuration is
+saved. Invalid reloads retain the previous settings.
+
+Field keys: `name`, `sessionStartDate`, `sessionEndDate`, `district`, `location`
+(TA), `microCatchment`, `hotspot`, `trainingModules`, `knownPlace`,
+`targetBeneficiaries`, `topicCount`, `status`, `benefitPlan`, `foreman`, `supervisor`.
+Name remains required; it may be hidden/read-only with a default.
+TA (`location`) is required only when its configured `required` value is true.
+When TA is optional and omitted, the selected District is saved as the Training's
+geographic scope. Keep District available or supply its default UUID. District-only
+Training codes use zeroes in the TA segment; geographic access checks still apply.
+Programme comes from the route, status starts in PREPARATION and topic count is
+derived, so those three stay read-only. Training creation always uses all programme
+modules; module defaults and module-list inputs are not accepted. The generated
+code is not a creation input.
+
+Text/numeric defaults use JSON strings/numbers. Dates use `YYYY-MM-DD` or null.
+Location/district defaults use raw location UUIDs; foreman/supervisor use raw User
+UUIDs; micro-catchment/hotspot use their database IDs. Reference objects with
+`id`/`uuid` are also accepted, but labels are resolved from actual records.
+Location scope and programme/module availability are still validated on save.
+
+`projectTrainingFormConfig` exposes only the effective form settings and resolved
+default labels to signed-in clients. The create page fetches it from the backend,
+so a Django-admin configuration change needs a page reload, not a frontend build.
+Defaults and required/read-only/hidden-input handling are also enforced by the
+create service; WORK behavior is unchanged. Optional Training targets are stored
+as null (migration `0010_configurable_training_form`) and do not impose an
+enrolment cap. Normal target limits still apply when a target is supplied.
+
+These settings control creation. Existing records do not have their historical
+values overwritten when a deployment default changes.
+
+## Training topic lists
+
+TRAINING input accepts no module list, work Activity or manually entered working
+days. Creation includes every live module linked to the programme, ordered by
+catalogue name and ID, and every live topic in module order. Programmes without
+modules, or with a module without topics, are rejected. WORK keeps its Activity
+and working-day requirements.
+
+Each ProjectTopic stores only the Training, catalogue topic and fixed sequence.
+Migration `0011_projecttopic_catalogue_links` removes copied labels and module
+links from current and historical rows; topic links and sequence are preserved.
+Topic code/name and module name are read from the linked catalogue topic/activity,
+so renames appear on existing Trainings. Adding/removing/reordering catalogue
+topics, adding programme modules and unrelated Training updates never change an
+existing Training's membership or attendance-column order. Soft-deleted catalogue
+topics retain their existing Training links. A Training's programme cannot be
+changed after creation, and legacy Trainings are never silently backfilled.
+
+GraphQL exposes trainingModules, trainingTopics and per-module completion. The
+shared training_module_completion helper uses the fixed topic sequences and live
+catalogue labels. TRAINING attendance accepts only 0 or 100; WORK percentages
+remain unchanged. A missing percentage reports the required-value error first.
+
 ## Training module catalogue
 
 Administration > Training modules manages shared Activity modules, programme links,
@@ -124,3 +193,15 @@ Missing and inaccessible parents return the same authorization error. Mutation
 services reread assignments, and parent row locks coordinate mutations with
 project transfers. Existing GraphQL operation permissions and geography bypasses
 remain in effect; anonymous callers cannot use those bypasses to mutate data.
+
+Programme-specific Training fields use `training_form.programs.202646268.fields` for
+RMEP and `training_form.programs.<UPG_PROGRAM_CODE>.fields` for UPG. Keys match the selected
+BenefitPlan's `code` value. Replace `<UPG_PROGRAM_CODE>` with the actual UPG code.
+Each programme overrides shared `training_form.fields` property by property;
+unmatched programmes retain shared rules. Set `visible: false` to remove an
+optional field. Visibility, required, readOnly and default are all supported.
+The example JSON includes both programmes; adjust its sample rules as needed.
+The API resolves the selected programme using `projectTrainingFormConfig(benefitPlanId: UUID)`;
+creation defaults and validation use the same programme rules. Save the backend
+module configuration and reload the creation page; JSON-only changes need no UI build.
+WORK/TRAINING remains a deployment setting.
