@@ -1,0 +1,62 @@
+{
+  "project_type": "TRAINING",
+  "training_form": {
+    "fields": {
+      "name": { "visible": true, "required": true, "readOnly": false },
+      "sessionStartDate": { "visible": true, "required": false, "readOnly": false, "default": null },
+      "sessionEndDate": { "visible": true, "required": false, "readOnly": false, "default": null },
+      "district": { "visible": true, "required": true, "readOnly": false },
+      "location": { "visible": true, "required": true, "readOnly": false },
+      "microCatchment": { "visible": false, "required": false, "readOnly": false },
+      "hotspot": { "visible": false, "required": false, "readOnly": false },
+      "trainingModules": { "visible": true, "required": true, "readOnly": false },
+      "knownPlace": { "visible": true, "required": false, "readOnly": false, "default": "" },
+      "targetBeneficiaries": { "visible": true, "required": false, "readOnly": false, "default": null },
+      "topicCount": { "visible": true, "required": false, "readOnly": true },
+      "status": { "visible": true, "required": true, "readOnly": true, "default": "PREPARATION" },
+      "benefitPlan": { "visible": true, "required": true, "readOnly": true },
+      "foreman": { "visible": false, "required": false, "readOnly": false },
+      "supervisor": { "visible": false, "required": false, "readOnly": false }
+    },
+    "programs": {
+      "REPLACE_WITH_RMEP_PROGRAM_CODE": {
+        "fields": {
+          "name": { "visible": true, "required": true, "readOnly": false },
+          "sessionStartDate": { "visible": true, "required": false, "readOnly": false, "default": null },
+          "sessionEndDate": { "visible": true, "required": false, "readOnly": false, "default": null },
+          "district": { "visible": true, "required": true, "readOnly": false },
+          "location": { "visible": false, "required": false, "readOnly": false },
+          "microCatchment": { "visible": true, "required": true, "readOnly": false },
+          "hotspot": { "visible": false, "required": false, "readOnly": false },
+          "trainingModules": { "visible": true, "required": true, "readOnly": false },
+          "knownPlace": { "visible": true, "required": false, "readOnly": false, "default": "" },
+          "targetBeneficiaries": { "visible": true, "required": false, "readOnly": false, "default": null },
+          "topicCount": { "visible": true, "required": false, "readOnly": true },
+          "status": { "visible": true, "required": true, "readOnly": true, "default": "PREPARATION" },
+          "benefitPlan": { "visible": true, "required": true, "readOnly": true },
+          "foreman": { "visible": false, "required": false, "readOnly": false },
+          "supervisor": { "visible": false, "required": false, "readOnly": false }
+        }
+      },
+      "REPLACE_WITH_UPG_PROGRAM_CODE": {
+        "fields": {
+          "name": { "visible": true, "required": true, "readOnly": false },
+          "sessionStartDate": { "visible": true, "required": false, "readOnly": false, "default": null },
+          "sessionEndDate": { "visible": true, "required": false, "readOnly": false, "default": null },
+          "district": { "visible": true, "required": true, "readOnly": false },
+          "location": { "visible": true, "required": true, "readOnly": false },
+          "microCatchment": { "visible": false, "required": false, "readOnly": false },
+          "hotspot": { "visible": false, "required": false, "readOnly": false },
+          "trainingModules": { "visible": true, "required": true, "readOnly": false },
+          "knownPlace": { "visible": true, "required": false, "readOnly": false, "default": "" },
+          "targetBeneficiaries": { "visible": true, "required": false, "readOnly": false, "default": null },
+          "topicCount": { "visible": true, "required": false, "readOnly": true },
+          "status": { "visible": true, "required": true, "readOnly": true, "default": "PREPARATION" },
+          "benefitPlan": { "visible": true, "required": true, "readOnly": true },
+          "foreman": { "visible": false, "required": false, "readOnly": false },
+          "supervisor": { "visible": false, "required": false, "readOnly": false }
+        }
+      }
+    }
+  }
+}

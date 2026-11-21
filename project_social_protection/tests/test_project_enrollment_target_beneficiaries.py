@@ -242,7 +242,7 @@ class ProjectEnrollmentTargetBeneficiariesTest(TestCase):
 
         # Simulate an admin lowering the target below current assigned count.
         project.target_beneficiaries = 1
-        project.save(update_fields=['target_beneficiaries'])
+        project.save(user=self.user, update_fields=['target_beneficiaries'])
 
         # Keep two beneficiaries assigned: this reduces total from 3 -> 2,
         # which is still over target. This must succeed because it's a

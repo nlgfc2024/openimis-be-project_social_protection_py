@@ -1,7 +1,7 @@
 import graphene
 import graphene_django_optimizer as gql_optimizer
 from django.contrib.auth.models import AnonymousUser
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from django.utils.translation import gettext as _
 
@@ -28,6 +28,7 @@ from project_social_protection.gql_mutations import (
 )
 from project_social_protection.gql_queries import (
     ActivityGQLType,
+    ProjectTrainingModuleGQLType,
     ProjectGQLType,
     ProjectHistoryGQLType,
     BeneficiaryProjectEnrollmentGQLType,
@@ -38,9 +39,70 @@ from project_social_protection.gql_queries import (
 from project_social_protection.models import Activity, Project
 from project_social_protection.export_mixin import ExportableProjectQueryMixin
 from project_social_protection.validation import validate_project_unique_name
+from project_social_protection.catalogue_mutations import (
+    CreateTrainingModule, UpdateTrainingModule, DeleteTrainingModule,
+)
 
 
 class Query(ExportableProjectQueryMixin, graphene.ObjectType):
+    training_module = OrderedDjangoFilterConnectionField(
+        ActivityGQLType, orderBy=graphene.List(graphene.String),
+    )
+
+    def resolve_training_module(self, info, **kwargs):
+        from project_social_protection.training_catalogue import require_catalogue_permission
+        require_catalogue_permission(info.context.user, 'search')
+        from project_social_protection.training_catalogue import scoped_training_modules
+        return scoped_training_modules(info.context.user).filter(
+            topics__is_deleted=False).distinct().prefetch_related('benefit_plans', 'topics')
+
+    project_programme_modules = graphene.List(
+        ProjectTrainingModuleGQLType, benefit_plan_id=graphene.UUID(required=True),
+    )
+
+    def resolve_project_programme_modules(self, info, benefit_plan_id):
+        user = info.context.user
+        config = ProjectSocialProtectionConfig
+        if not user.is_authenticated or not any(user.has_perms(perms) for perms in (
+                config.gql_project_search_perms, config.gql_project_create_perms,
+                config.gql_project_update_perms)):
+            raise PermissionDenied(_("unauthorized"))
+        if config.project_type != 'TRAINING':
+            return []
+        from social_protection.models import BenefitPlan
+        from social_protection.benefit_plan_access import require_benefit_plan_access
+        require_benefit_plan_access(user, benefit_plan_id)
+        if not BenefitPlan.objects.filter(pk=benefit_plan_id, is_deleted=False).exists():
+            raise ValidationError(_('Programme does not exist.'))
+        from django.db.models import Count
+        return list(Activity.objects.filter(is_deleted=False, benefit_plans__pk=benefit_plan_id)
+                    .order_by('name', 'pk').annotate(topic_count=Count(
+                        'topics', filter=Q(topics__is_deleted=False)))
+                    .values('id', 'name', 'topic_count'))
+
+    project_deployment_type = graphene.String()
+    project_training_form_config = graphene.JSONString(benefit_plan_id=graphene.UUID())
+
+    def resolve_project_training_form_config(self, info, benefit_plan_id=None):
+        if not info.context.user.is_authenticated:
+            raise PermissionDenied(_("unauthorized"))
+        from project_social_protection.training_form import public_training_form
+        plan = None
+        if benefit_plan_id is not None:
+            from social_protection.models import BenefitPlan
+            plan = BenefitPlan.objects.filter(pk=benefit_plan_id, is_deleted=False).first()
+            if plan is None:
+                raise ValidationError(_('Programme does not exist.'))
+        if plan is not None:
+            from social_protection.benefit_plan_access import require_benefit_plan_access
+            require_benefit_plan_access(info.context.user, plan.pk)
+        return public_training_form(plan)
+
+    def resolve_project_deployment_type(self, info):
+        if not info.context.user.is_authenticated:
+            raise PermissionDenied(_("unauthorized"))
+        return ProjectSocialProtectionConfig.project_type
+
     activity = OrderedDjangoFilterConnectionField(
         ActivityGQLType,
         orderBy=graphene.List(of_type=graphene.String),
@@ -234,6 +296,9 @@ class Query(ExportableProjectQueryMixin, graphene.ObjectType):
 
 
 class Mutation(graphene.ObjectType):
+    create_training_module = CreateTrainingModule.Field()
+    update_training_module = UpdateTrainingModule.Field()
+    delete_training_module = DeleteTrainingModule.Field()
     create_project = CreateProjectMutation.Field()
     update_project = UpdateProjectMutation.Field()
     delete_project = DeleteProjectMutation.Field()

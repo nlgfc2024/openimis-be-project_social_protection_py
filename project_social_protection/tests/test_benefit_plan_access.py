@@ -37,11 +37,12 @@ class ProjectBenefitPlanAccessTest(ProjectDistrictScopeFixtures, TestCase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.plan_access = UserBenefitPlanAccess(
-            user=cls.reader,
-            benefit_plan=cls.plan,
-        )
-        cls.plan_access.save(username=cls.admin.username)
+        cls.plan_access = UserBenefitPlanAccess.objects.filter(
+            user=cls.reader, benefit_plan=cls.plan, is_deleted=False).first()
+        if cls.plan_access is None:
+            cls.plan_access = UserBenefitPlanAccess(user=cls.reader, benefit_plan=cls.plan)
+            cls.plan_access.save(username=cls.admin.username)
+
 
     def setUp(self):
         super().setUp()
