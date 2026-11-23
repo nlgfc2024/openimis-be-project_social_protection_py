@@ -6,7 +6,7 @@ each ACTIVE participant below that percentage in any module of the training is
 suspended through the programme's beneficiary service, with ``disqualified_on`` and
 ``disqualification_reason`` recorded on the beneficiary. A value exactly at the
 percentage is not disqualified. Per-module completion comes from the shared
-training_module_completion helper, as on the attendance grid and in the payroll.
+training_module_completion_for helper, as on the attendance grid and in the payroll.
 """
 import datetime
 from decimal import Decimal, InvalidOperation
@@ -15,7 +15,7 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import gettext as _
 
 from project_social_protection.models import BeneficiaryProjectEnrollment, GroupBeneficiaryProjectEnrollment
-from project_social_protection.training_topics import training_module_completion
+from project_social_protection.training_topics import training_module_completion_for
 
 DISQUALIFICATION_PERCENTAGE_KEY = "training_disqualification_percentage"
 
@@ -71,13 +71,14 @@ def disqualify_participants(project, user):
     for enrollment_model, beneficiary_field, service_class, owner_field in (
             (BeneficiaryProjectEnrollment, "beneficiary", BeneficiaryService, "individual_id"),
             (GroupBeneficiaryProjectEnrollment, "group_beneficiary", GroupBeneficiaryService, "group_id")):
-        enrollments = enrollment_model.objects.filter(project=project, is_deleted=False).select_related(
-            "project", beneficiary_field)
+        enrollments = list(enrollment_model.objects.filter(project=project, is_deleted=False).select_related(
+            "project", beneficiary_field))
+        completion = training_module_completion_for(enrollments)
         for enrollment in enrollments:
             beneficiary = getattr(enrollment, beneficiary_field)
             if beneficiary is None or beneficiary.is_deleted or beneficiary.status != BeneficiaryStatus.ACTIVE:
                 continue
-            failing = failing_modules(training_module_completion(enrollment), percentage)
+            failing = failing_modules(completion.get(enrollment.pk, []), percentage)
             if not failing:
                 continue
             result = service_class(user).update({
