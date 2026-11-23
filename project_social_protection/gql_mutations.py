@@ -1,5 +1,4 @@
 import graphene as graphene
-import re
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.db import transaction
@@ -10,12 +9,12 @@ from core.gql.gql_mutations.base_mutation import (
     BaseHistoryModelUpdateMutationMixin, BaseHistoryModelDeleteMutationMixin
 )
 from core.schema import OpenIMISMutation
-from core.models import User
-from location.models import Location, Hotspot, MicroCatchment
+from location.models import Location
 from social_protection.benefit_plan_access import require_benefit_plan_access
 from social_protection.models import BenefitPlan, Beneficiary, GroupBeneficiary
 
 from project_social_protection.apps import ProjectSocialProtectionConfig
+from project_social_protection.creation import generate_project_code, _resolve_malawi_fields
 from project_social_protection.mutation_scope import (
     authorized_project, invalid_hotspot_error, validate_destination,
 )
@@ -28,85 +27,6 @@ from project_social_protection.services import (
 )
 
 _MUTATION_MODULE = "project_social_protection"
-
-
-def _find_location_by_type(location, location_type):
-    current = location
-    while current is not None:
-        if getattr(current, "type", None) == location_type:
-            return current
-        current = getattr(current, "parent", None)
-    return None
-
-
-def _normalize_numeric_code(code_value, digits):
-    numeric = ''.join(ch for ch in str(code_value or '') if ch.isdigit())
-    return (numeric[-digits:] if numeric else '').zfill(digits)
-
-
-def generate_project_code(location):
-    district_digits = int(ProjectSocialProtectionConfig.project_code_district_digits)
-    ta_digits = int(ProjectSocialProtectionConfig.project_code_ta_digits)
-    sequence_digits = int(ProjectSocialProtectionConfig.project_code_sequence_digits)
-
-    district = _find_location_by_type(location, 'R')
-    ta = _find_location_by_type(location, 'D')
-    if district is None or ta is None:
-        raise ValidationError(
-            _("A project location must belong to a District and Traditional Authority.")
-        )
-
-    district_code = _normalize_numeric_code(getattr(district, 'code', None), district_digits)
-    ta_code = _normalize_numeric_code(getattr(ta, 'code', None), ta_digits)
-    prefix = f"{district_code}{ta_code}"
-    pattern = re.compile(rf"^{prefix}(\d{{{sequence_digits}}})$")
-
-    max_seq = 0
-    existing_codes = Project.objects.filter(
-        code__startswith=prefix,
-    ).values_list('code', flat=True)
-    for code in existing_codes:
-        match = pattern.match(code or '')
-        if not match:
-            continue
-        max_seq = max(max_seq, int(match.group(1)))
-
-    if max_seq >= (10 ** sequence_digits) - 1:
-        return None
-
-    next_seq = str(max_seq + 1).zfill(sequence_digits)
-    return f"{prefix}{next_seq}"
-
-
-def _resolve_malawi_fields(data):
-    """Resolve the Malawi (sprint) FK inputs on a project mutation payload in place:
-    micro_catchment_id -> MicroCatchment, hotspot_id -> Hotspot, foreman_id /
-    supervisor_id -> core.User. `known_place` is a plain string and passes through
-    untouched."""
-    if 'micro_catchment_id' in data:
-        micro_catchment_id = data.pop('micro_catchment_id')
-        micro_catchment = MicroCatchment.objects.filter(id=micro_catchment_id).first() if micro_catchment_id else None
-        if micro_catchment_id and micro_catchment is None:
-            raise ValidationError(_("Invalid project micro-catchment."))
-        data['micro_catchment'] = micro_catchment
-    if 'hotspot_id' in data:
-        hotspot_id = data.pop('hotspot_id')
-        hotspot = Hotspot.objects.filter(id=hotspot_id).first() if hotspot_id else None
-        if hotspot_id and hotspot is None:
-            raise invalid_hotspot_error()
-        data['hotspot'] = hotspot
-    if 'foreman_id' in data:
-        foreman_id = data.pop('foreman_id')
-        foreman = User.objects.filter(id=foreman_id).first() if foreman_id else None
-        if foreman_id and foreman is None:
-            raise ValidationError(_("Foreman %(id)s does not exist.") % {'id': foreman_id})
-        data['foreman'] = foreman
-    if 'supervisor_id' in data:
-        supervisor_id = data.pop('supervisor_id')
-        supervisor = User.objects.filter(id=supervisor_id).first() if supervisor_id else None
-        if supervisor_id and supervisor is None:
-            raise ValidationError(_("Supervisor %(id)s does not exist.") % {'id': supervisor_id})
-        data['supervisor'] = supervisor
 
 
 def generate_project_name(hotspot, activity, benefit_plan, known_place):
@@ -123,12 +43,17 @@ def generate_project_name(hotspot, activity, benefit_plan, known_place):
 
 
 class CreateProjectInputType(OpenIMISMutation.Input):
+    # Shared inputs are nullable for TRAINING; ProjectValidation still requires
+    # WORK activity, positive working days, location and target beneficiaries.
+    district_id = graphene.UUID(required=False)
+    session_start_date = graphene.Date(required=False)
+    session_end_date = graphene.Date(required=False)
     benefit_plan_id = graphene.ID(required=True)
     name = graphene.String(required=False)
-    activity_id = graphene.ID(required=True)
-    location_id = graphene.ID(required=True)
-    target_beneficiaries = graphene.Int(required=True)
-    working_days = graphene.Int(required=True)
+    activity_id = graphene.ID(required=False)
+    location_id = graphene.ID(required=False)
+    target_beneficiaries = graphene.Int(required=False)
+    working_days = graphene.Int(required=False)
     allows_multiple_enrollments = graphene.Boolean(required=False)
     micro_catchment_id = graphene.ID(required=False)
     hotspot_id = graphene.ID(required=False)
@@ -159,72 +84,79 @@ class CreateProjectMutation(
         if "client_mutation_label" in data:
             data.pop("client_mutation_label")
 
-        benefit_plan_id = data.pop("benefit_plan_id")
-        require_benefit_plan_access(user, benefit_plan_id)
-        data["benefit_plan"] = BenefitPlan.objects.get(id=benefit_plan_id)
-        data["activity"] = Activity.objects.get(id=data.pop("activity_id"))
-        data["location"] = Location.objects.get(uuid=data.pop("location_id"))
-        validate_destination(user, {
-            "location": data["location"],
-            "benefit_plan": data["benefit_plan"],
-        })
-        # Creation always starts in preparation, regardless of a client-provided
-        # status. Progression is allowed only after the project exists.
-        data["status"] = ProjectStatus.PREPARATION
-        _resolve_malawi_fields(data)
-        # Name is derived, not client-supplied.
-        data["name"] = generate_project_name(
-            data.get("hotspot"), data["activity"], data["benefit_plan"],
-            data.get("known_place"),
-        )
+        require_benefit_plan_access(user, data["benefit_plan_id"])
+        if ProjectSocialProtectionConfig.project_type == 'TRAINING':
+            res = ProjectService(user).create(data)
+        else:
+            data["benefit_plan"] = BenefitPlan.objects.get(
+                id=data.pop("benefit_plan_id")
+            )
+            if data.get('activity_id'):
+                data['activity'] = Activity.objects.get(id=data.pop('activity_id'))
+            if data.get('location_id'):
+                data['location'] = Location.objects.get(uuid=data.pop('location_id'))
+            else:
+                data.pop('location_id', None)
+            if not data.get('location'):
+                raise ValidationError(_('Location is required.'))
+            validate_destination(user, {"location": data["location"], "benefit_plan": data["benefit_plan"]})
+            # Creation always starts in preparation, regardless of a client-provided
+            # status. Progression is allowed only after the project exists.
+            data["status"] = ProjectStatus.PREPARATION
+            _resolve_malawi_fields(data)
+            if ProjectSocialProtectionConfig.project_type == 'WORK':
+                data["name"] = generate_project_name(
+                    data.get("hotspot"), data.get("activity"), data["benefit_plan"],
+                    data.get("known_place"),
+                )
 
-        service = ProjectService(user)
-        if ProjectSocialProtectionConfig.project_code_enabled:
-            max_retries = 5
-            for _attempt in range(max_retries):
-                try:
-                    code = generate_project_code(data["location"])
-                except ValidationError as exc:
+            service = ProjectService(user)
+            if ProjectSocialProtectionConfig.project_code_enabled:
+                max_retries = 5
+                for _attempt in range(max_retries):
+                    try:
+                        code = generate_project_code(data["location"], allow_district=ProjectSocialProtectionConfig.project_type == 'TRAINING')
+                    except ValidationError as exc:
+                        return {
+                            "success": False,
+                            "message": exc.messages[0],
+                            "details": "",
+                        }
+                    if code is None:
+                        return {
+                            "success": False,
+                            "message": _("Project code sequence limit reached for this location."),
+                            "details": "",
+                        }
+                    data["code"] = code
+                    res = service.create(data)
+                    if res['success']:
+                        break
+
+                    detail = str(res.get('detail', ''))
+                    if 'uniq_project_code' in detail:
+                        continue
+                    if 'uniq_live_project_name_per_plan' in detail:
+                        return {
+                            "success": False,
+                            "message": _("A project with this name already exists for the selected program."),
+                            "details": "",
+                        }
+                    return res
+                else:
                     return {
                         "success": False,
-                        "message": exc.messages[0],
+                        "message": _("Failed to generate a unique project code. Please retry."),
                         "details": "",
                     }
-                if code is None:
-                    return {
-                        "success": False,
-                        "message": _("Project code sequence limit reached for this location."),
-                        "details": "",
-                    }
-                data["code"] = code
+            else:
                 res = service.create(data)
-                if res['success']:
-                    break
-
-                detail = str(res.get('detail', ''))
-                if 'uniq_project_code' in detail:
-                    continue
-                if 'uniq_live_project_name_per_plan' in detail:
+                if not res['success'] and 'uniq_live_project_name_per_plan' in str(res.get('detail', '')):
                     return {
                         "success": False,
                         "message": _("A project with this name already exists for the selected program."),
                         "details": "",
                     }
-                return res
-            else:
-                return {
-                    "success": False,
-                    "message": _("Failed to generate a unique project code. Please retry."),
-                    "details": "",
-                }
-        else:
-            res = service.create(data)
-            if not res['success'] and 'uniq_live_project_name_per_plan' in str(res.get('detail', '')):
-                return {
-                    "success": False,
-                    "message": _("A project with this name already exists for the selected program."),
-                    "details": "",
-                }
 
         if client_mutation_id and res['success']:
             project = Project.objects.get(id=res['data']['id'])
@@ -239,6 +171,8 @@ class CreateProjectMutation(
 
 
 class UpdateProjectInputType(OpenIMISMutation.Input):
+    session_start_date = graphene.Date(required=False)
+    session_end_date = graphene.Date(required=False)
     id = graphene.UUID(required=True)
     benefit_plan_id = graphene.ID(required=False)
     name = graphene.String(required=False)
@@ -277,8 +211,6 @@ class UpdateProjectMutation(
             data.pop("client_mutation_id")
         if "client_mutation_label" in data:
             data.pop("client_mutation_label")
-        # Name is MIS-derived; never let a client overwrite it on update.
-        data.pop("name", None)
 
         name_driving_fields = {
             "benefit_plan_id", "activity_id", "hotspot_id", "known_place",
@@ -286,13 +218,16 @@ class UpdateProjectMutation(
         rebuild_name = bool(name_driving_fields.intersection(data))
 
         project = authorized_project(user, data["id"])
+        if project.project_type == 'WORK':
+            data.pop('name', None)
 
         if 'benefit_plan_id' in data:
             benefit_plan_id = data.pop("benefit_plan_id")
             require_benefit_plan_access(user, benefit_plan_id)
             data["benefit_plan"] = BenefitPlan.objects.get(id=benefit_plan_id)
         if 'activity_id' in data:
-            data["activity"] = Activity.objects.get(id=data.pop("activity_id"))
+            activity_id = data.pop('activity_id')
+            data['activity'] = Activity.objects.get(id=activity_id) if activity_id else None
         if 'location_id' in data:
             data["location"] = Location.objects.get(
                 uuid=data.pop("location_id")
@@ -300,7 +235,7 @@ class UpdateProjectMutation(
         # Rebuild the generated name when any name-driving field changes.  Values that
         # are not in the patch continue to come from the stored project.
         _resolve_malawi_fields(data)
-        if rebuild_name:
+        if rebuild_name and project.project_type == 'WORK':
             data["name"] = generate_project_name(
                 data.get("hotspot", project.hotspot),
                 data.get("activity", project.activity),

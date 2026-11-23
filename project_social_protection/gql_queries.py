@@ -12,6 +12,7 @@ from social_protection.gql_queries import BenefitPlanGQLType
 
 from project_social_protection.models import (
     Activity,
+    ActivityTopic,
     Project,
     BeneficiaryProjectTimeEntry,
     GroupBeneficiaryProjectTimeEntry,
@@ -19,6 +20,9 @@ from project_social_protection.models import (
     GroupBeneficiaryProjectEnrollment,
 )
 from project_social_protection.apps import ProjectSocialProtectionConfig
+from project_social_protection.training_topics import (
+    has_training_attendance, training_modules, training_module_completion,
+)
 
 
 def require_project_read(info):
@@ -48,7 +52,43 @@ class GroupBeneficiaryProjectTimeEntryGQLType(ProjectReadScopeMixin, DjangoObjec
         interfaces = (graphene.relay.Node,)
 
 
+class ProjectTrainingModuleGQLType(graphene.ObjectType):
+    id = graphene.UUID()
+    name = graphene.String()
+    topic_count = graphene.Int()
+
+
+class ProjectTopicGQLType(graphene.ObjectType):
+    id = graphene.UUID()
+    sequence = graphene.Int()
+    code = graphene.String()
+    name = graphene.String()
+    module = graphene.Field(ProjectTrainingModuleGQLType)
+
+    def resolve_code(self, info):
+        return self.topic.code
+
+    def resolve_name(self, info):
+        return self.topic.name
+
+    def resolve_module(self, info):
+        return {'id': self.topic.activity_id, 'name': self.topic.activity.name}
+
+
+class TrainingModuleCompletionGQLType(graphene.ObjectType):
+    module = graphene.Field(ProjectTrainingModuleGQLType)
+    ticked_topics = graphene.Int()
+    total_topics = graphene.Int()
+    percentage = graphene.Float()
+
+
 class BeneficiaryProjectEnrollmentGQLType(ProjectReadScopeMixin, DjangoObjectType):
+    module_completion = graphene.List(TrainingModuleCompletionGQLType)
+
+    def resolve_module_completion(self, info):
+        require_project_read(info)
+        return training_module_completion(self)
+
     uuid = graphene.String(source='uuid')
     time_entries = graphene.List(BeneficiaryProjectTimeEntryGQLType)
 
@@ -71,6 +111,12 @@ class BeneficiaryProjectEnrollmentGQLType(ProjectReadScopeMixin, DjangoObjectTyp
 
 
 class GroupBeneficiaryProjectEnrollmentGQLType(ProjectReadScopeMixin, DjangoObjectType):
+    module_completion = graphene.List(TrainingModuleCompletionGQLType)
+
+    def resolve_module_completion(self, info):
+        require_project_read(info)
+        return training_module_completion(self)
+
     uuid = graphene.String(source='uuid')
     time_entries = graphene.List(GroupBeneficiaryProjectTimeEntryGQLType)
 
@@ -97,6 +143,7 @@ class ActivityFilter(django_filters.FilterSet):
         model = Activity
         fields = {
             "id": ["exact"],
+            "benefit_plans__id": ["exact"],
             "name": ["exact", "iexact", "startswith", "istartswith",
                      "contains", "icontains"],
             "date_created": ["exact", "lt", "lte", "gt", "gte"],
@@ -106,8 +153,31 @@ class ActivityFilter(django_filters.FilterSet):
         }
 
 
+class ActivityTopicGQLType(DjangoObjectType):
+    class Meta:
+        model = ActivityTopic
+        fields = ('id', 'code', 'name', 'sequence')
+
+
 class ActivityGQLType(DjangoObjectType):
     uuid = graphene.String(source='uuid')
+    programmes = graphene.List(BenefitPlanGQLType)
+    topics = graphene.List(ActivityTopicGQLType)
+
+    def resolve_programmes(self, info):
+        from project_social_protection.training_catalogue import require_catalogue_permission
+        require_catalogue_permission(info.context.user, 'search')
+        from social_protection.benefit_plan_access import filter_queryset_by_benefit_plan
+        return filter_queryset_by_benefit_plan(self.benefit_plans.filter(is_deleted=False),
+                                             info.context.user, 'pk').order_by('name', 'id')
+
+    def resolve_topics(self, info):
+        from project_social_protection.training_catalogue import require_catalogue_permission
+        require_catalogue_permission(info.context.user, 'search')
+        from project_social_protection.training_catalogue import scoped_training_modules
+        if not scoped_training_modules(info.context.user).filter(pk=self.pk).exists():
+            raise PermissionDenied(_('unauthorized'))
+        return self.topics.filter(is_deleted=False).order_by('sequence', 'id')
 
     class Meta:
         model = Activity
@@ -141,6 +211,23 @@ class ProjectFilter(django_filters.FilterSet):
 
 
 class ProjectGQLType(ProjectReadScopeMixin, DjangoObjectType):
+    training_topics = graphene.List(ProjectTopicGQLType)
+    training_modules = graphene.List(ProjectTrainingModuleGQLType)
+    training_modules_locked = graphene.Boolean()
+
+    def resolve_training_topics(self, info):
+        require_project_read(info)
+        return self.training_topics.filter(is_deleted=False).select_related('topic__activity')
+
+    def resolve_training_modules(self, info):
+        require_project_read(info)
+        return training_modules(self)
+
+    def resolve_training_modules_locked(self, info):
+        require_project_read(info)
+        return self.project_type == 'TRAINING'
+
+    project_type = graphene.String()
     uuid = graphene.String(source='uuid')
     code = graphene.String()
     assigned_beneficiaries_count = graphene.Int()
@@ -180,6 +267,9 @@ class ProjectGQLType(ProjectReadScopeMixin, DjangoObjectType):
             'code',
             'name',
             'status',
+            'project_type',
+            'session_start_date',
+            'session_end_date',
             'benefit_plan',
             'activity',
             'location',

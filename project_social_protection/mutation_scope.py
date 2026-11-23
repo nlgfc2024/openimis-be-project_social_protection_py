@@ -24,6 +24,7 @@ def authorized_project(user, project_id, deleted=False):
     ).first()
     if project is None:
         raise PermissionDenied(_("unauthorized"))
+    require_benefit_plan_access(user, project.benefit_plan_id)
     return project
 
 
