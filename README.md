@@ -84,7 +84,8 @@ changed after creation, and legacy Trainings are never silently backfilled.
 
 GraphQL exposes trainingModules, trainingTopics and per-module completion. The
 shared training_module_completion helper uses the fixed topic sequences and live
-catalogue labels. TRAINING attendance accepts only 0 or 100; WORK percentages
+catalogue labels; training_module_completion_for computes it for many enrollments
+in two queries, for calculation rules that evaluate a whole payroll. TRAINING attendance accepts only 0 or 100; WORK percentages
 remain unchanged. A missing percentage reports the required-value error first.
 
 ## Training module catalogue
