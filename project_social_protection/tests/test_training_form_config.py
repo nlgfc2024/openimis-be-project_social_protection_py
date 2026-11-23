@@ -364,3 +364,21 @@ class TrainingFormServiceTest(ProjectDistrictScopeFixtures, TestCase):
             names.assert_not_called()
         self.assertFalse(ProjectService(self.admin).update({
             'id': project.pk, 'session_start_date': date(2026, 11, 21)})['success'])
+
+
+    def test_update_invalid_reference_returns_field_validation_message(self):
+        from uuid import uuid4
+        from project_social_protection.training_form import validate_training_update
+        result = self.create()
+        self.assertTrue(result['success'], result)
+        project = Project.objects.get(pk=result['data']['id'])
+        with patch.object(ProjectSocialProtectionConfig, 'training_form', self.configuration()):
+            for identity in (uuid4(), 'not-a-user-id'):
+                with self.subTest(identity=identity), self.assertRaisesMessage(
+                        ValidationError, 'foreman must reference an existing record.'):
+                    validate_training_update({'foreman_id': identity}, project)
+                response = ProjectService(self.admin).update({'id': project.pk, 'foreman_id': identity})
+                self.assertFalse(response['success'])
+                self.assertIn('foreman must reference an existing record.', str(response))
+        project.refresh_from_db()
+        self.assertIsNone(project.foreman_id)

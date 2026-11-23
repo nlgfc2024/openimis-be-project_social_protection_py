@@ -155,7 +155,10 @@ def validate_training_update(data, project):
         elif f'{attribute}_id' in data:
             identity = data[f'{attribute}_id']
             model_field = Project._meta.get_field(attribute)
-            proposed = model_field.related_model.objects.get(pk=identity) if identity is not None else None
+            try:
+                proposed = model_field.related_model.objects.get(pk=identity) if identity is not None else None
+            except (model_field.related_model.DoesNotExist, ValidationError, ValueError, TypeError) as error:
+                raise ValidationError(_('%(field)s must reference an existing record.') % {'field': field}) from error
         effective[attribute] = proposed
         rule = fields[field]
         old_value, new_value = getattr(previous, 'pk', previous), getattr(proposed, 'pk', proposed)

@@ -177,9 +177,6 @@ class ActivityGQLType(DjangoObjectType):
         from project_social_protection.training_catalogue import scoped_training_modules
         if not scoped_training_modules(info.context.user).filter(pk=self.pk).exists():
             raise PermissionDenied(_('unauthorized'))
-        from project_social_protection.training_catalogue import scoped_training_modules
-        if not scoped_training_modules(info.context.user).filter(pk=self.pk).exists():
-            raise PermissionDenied(_('unauthorized'))
         return self.topics.filter(is_deleted=False).order_by('sequence', 'id')
 
     class Meta:
