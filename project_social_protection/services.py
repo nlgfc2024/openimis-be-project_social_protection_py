@@ -18,6 +18,7 @@ from social_protection.models import (
 )
 from project_social_protection.models import (
     Project,
+    ProjectStatus,
     BeneficiaryProjectTimeEntry,
     GroupBeneficiaryProjectTimeEntry,
     BeneficiaryProjectEnrollment,
@@ -26,6 +27,7 @@ from project_social_protection.models import (
 from project_social_protection.validation import ProjectValidation
 from project_social_protection.apps import ProjectSocialProtectionConfig
 from project_social_protection.training_topics import prepare_training_topics, save_training_topics
+from project_social_protection.training_disqualification import disqualify_participants, is_disqualifying_training
 from project_social_protection.training_form import apply_training_creation_defaults
 from project_social_protection.creation import generate_project_code, _resolve_malawi_fields
 from project_social_protection.mutation_scope import (
@@ -108,9 +110,21 @@ class ProjectService(BaseService):
                 "to another Benefit Plan."
             ))
 
-        return self._save_project(obj_data, project)
+        status = obj_data.get('status', project.status)
+        completing = disqualifying = False
+        # The programme's percentage is read only when the status changes, so an
+        # invalid one never blocks other edits.
+        if project.project_type == 'TRAINING' and status != project.status:
+            disqualifying = is_disqualifying_training(project)
+            if disqualifying and project.status == ProjectStatus.COMPLETED and status != ProjectStatus.COMPLETED:
+                raise ValidationError(_(
+                    "A completed training of a programme that disqualifies participants cannot be reopened."
+                ))
+            completing = disqualifying and project.status != ProjectStatus.COMPLETED \
+                and status == ProjectStatus.COMPLETED
+        return self._save_project(obj_data, project, disqualify=completing)
 
-    def _save_project(self, data, project=None):
+    def _save_project(self, data, project=None, disqualify=False):
         operation = 'update' if project else 'create'
         try:
             with transaction.atomic():
@@ -119,6 +133,9 @@ class ProjectService(BaseService):
                 if result['success']:
                     saved = Project.objects.get(pk=result['data']['id'])
                     save_training_topics(saved, topics, self.user)
+                    if disqualify:
+                        # In the completion's transaction: either both happen or neither.
+                        result['data']['suspended_participants'] = disqualify_participants(saved, self.user)
                 return result
         except Exception as error:
             return output_exception(model_name='Project', method=operation, exception=error)
