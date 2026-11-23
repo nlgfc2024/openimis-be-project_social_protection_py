@@ -12,7 +12,9 @@ from project_social_protection.schema import Query
 from project_social_protection.services import ProjectService, ProjectEnrollmentService
 from project_social_protection.tests.test_district_scope import ProjectDistrictScopeFixtures
 from project_social_protection.training_catalogue import TrainingModuleService
-from project_social_protection.training_topics import has_training_attendance, training_module_completion
+from project_social_protection.training_topics import (
+    has_training_attendance, training_module_completion, training_module_completion_for,
+)
 
 
 @override_settings(ROW_SECURITY=False, MODE='dev')
@@ -163,6 +165,21 @@ class TrainingTopicsTest(ProjectDistrictScopeFixtures, TestCase):
         self.assertEqual([(row['ticked_topics'], row['total_topics'], row['percentage']) for row in result],
                          [(1, 2, 50), (1, 1, 100)])
         self.assertEqual(training_module_completion(self.enrolments[0]), [])
+
+    def test_completion_for_many_enrollments_takes_two_queries(self):
+        first, second = self.create(name='Training one'), self.create(name='Training two')
+        enrollments = [self.enrollment(first), self.enrollment(second)]
+        ProjectEnrollmentService(self.admin, ProjectEnrollmentService.INDIVIDUAL).bulk_update_time_entries({'time_entries': [
+            {'enrollment_id': str(enrollments[0].pk), 'day_number': 1, 'percent_complete': 100},
+            {'enrollment_id': str(enrollments[1].pk), 'day_number': 3, 'percent_complete': 100}]})
+        enrollments = list(BeneficiaryProjectEnrollment.objects.filter(
+            pk__in=[enrollment.pk for enrollment in enrollments]).select_related('project'))
+        with self.assertNumQueries(2):
+            completion = training_module_completion_for(enrollments + [self.enrolments[0]])
+        for enrollment in enrollments:
+            self.assertEqual(completion[enrollment.pk], training_module_completion(enrollment))
+        self.assertNotIn(self.enrolments[0].pk, completion)
+        self.assertEqual(training_module_completion_for([]), {})
 
     def test_topic_link_failure_rolls_back_project_creation_and_history(self):
         count, history_count = Project.objects.count(), Project.history.count()
