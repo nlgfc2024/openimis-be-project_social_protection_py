@@ -207,8 +207,7 @@ class UpdateProjectMutation(
     @classmethod
     @transaction.atomic
     def _mutate(cls, user, **data):
-        if "client_mutation_id" in data:
-            data.pop("client_mutation_id")
+        client_mutation_id = data.pop("client_mutation_id", None)
         if "client_mutation_label" in data:
             data.pop("client_mutation_label")
 
@@ -245,11 +244,25 @@ class UpdateProjectMutation(
 
         service = ProjectService(user)
         res = service.update(data)
+        if res['success'] and client_mutation_id and 'suspended_participants' in (res.get('data') or {}):
+            # Completing a training of a disqualifying programme reports how many
+            # participants it suspended on the mutation log.
+            _record_on_mutation_log(client_mutation_id, {
+                'suspended_participants': res['data']['suspended_participants'],
+            })
 
         return res if not res['success'] else None
 
     class Input(UpdateProjectInputType):
         pass
+
+
+def _record_on_mutation_log(client_mutation_id, values):
+    from core.models import MutationLog
+
+    for log in MutationLog.objects.filter(client_mutation_id=client_mutation_id):
+        log.json_ext = {**(log.json_ext or {}), **values}
+        log.save()
 
 
 class DeleteProjectMutation(
