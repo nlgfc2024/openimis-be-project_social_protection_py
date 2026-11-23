@@ -88,6 +88,35 @@ catalogue labels; training_module_completion_for computes it for many enrollment
 in two queries, for calculation rules that evaluate a whole payroll. TRAINING attendance accepts only 0 or 100; WORK percentages
 remain unchanged. A missing percentage reports the required-value error first.
 
+## Training completion and disqualification
+
+A Training starts in PREPARATION and its status then progresses like any project;
+attendance is recorded only while it is IN_PROGRESS.
+
+A programme that sets `BenefitPlan.json_ext.training_disqualification_percentage`
+(UMEP: 90) runs non-continuous trainings. When one of its Trainings is set to
+COMPLETED, every ACTIVE participant below that percentage in any module of the
+Training is set to SUSPENDED through the programme's beneficiary service, which
+payroll and enrollment already exclude; a value exactly at the percentage is not
+disqualified. Completion per module comes from training_module_completion, as on the
+attendance grid and in the payroll. The beneficiary records `disqualified_on` and
+`disqualification_reason`, which names the Training, each failing module with its
+percentage, and the threshold. The suspensions and the status change happen in one
+transaction: if a suspension fails, nothing changes and the update reports the error.
+The completion needs only the project update right and creates no beneficiary
+maker-checker task. The update mutation records the number suspended on its mutation
+log (`json_ext.suspended_participants`).
+
+Such a completed Training cannot be reopened, and its attendance can no longer be
+created, changed or cleared. A programme without the percentage (UPG, RMEP) completes
+as before. An invalid percentage stops the completion with an error but no other
+edit. Reinstatement is pending a decision: setting a participant back to ACTIVE in the
+beneficiary form restores the status only.
+
+**Deployment:** set the UMEP programme's `training_disqualification_percentage` to 90
+and declare `disqualified_on` and `disqualification_reason` in its
+`beneficiary_data_schema`.
+
 ## Training module catalogue
 
 Administration > Training modules manages shared Activity modules, programme links,
