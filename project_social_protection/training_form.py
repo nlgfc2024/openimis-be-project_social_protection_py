@@ -162,7 +162,9 @@ def validate_training_update(data, project):
         effective[attribute] = proposed
         rule = fields[field]
         old_value, new_value = getattr(previous, 'pk', previous), getattr(proposed, 'pk', proposed)
-        if (rule['readOnly'] or not rule['visible']) and old_value != new_value:
+        # Status is read-only on the create form (a new Training starts in PREPARATION),
+        # but it still progresses afterwards, so attendance and completion can happen.
+        if field != 'status' and (rule['readOnly'] or not rule['visible']) and old_value != new_value:
             errors.append(_('%(field)s is read-only in the Training form configuration.') % {'field': field})
     # A read-only district protects the ancestry even when location itself is editable.
     def district(location):
