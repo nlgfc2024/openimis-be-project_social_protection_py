@@ -81,15 +81,40 @@ def training_modules(project):
 
 def training_module_completion(enrollment):
     """Shared calculation-rule helper; no thresholds are applied by the grid."""
-    if enrollment.project.project_type != 'TRAINING':
-        return []
-    attended = set(enrollment.time_entries.filter(is_deleted=False, percent_complete=100).values_list('day_number', flat=True))
-    modules = OrderedDict()
-    for link in enrollment.project.training_topics.filter(is_deleted=False).select_related('topic__activity'):
-        activity = link.topic.activity
-        module = modules.setdefault(activity.pk, dict(module={'id': activity.pk, 'name': activity.name},
-                                                      ticked_topics=0, total_topics=0))
-        module['total_topics'] += 1
-        module['ticked_topics'] += link.sequence in attended
-    return [{**module, 'percentage': 100 * module['ticked_topics'] / module['total_topics']}
-            for module in modules.values()]
+    return training_module_completion_for([enrollment]).get(enrollment.pk, [])
+
+
+def training_module_completion_for(enrollments):
+    """training_module_completion for many enrollments of one model, in two queries.
+
+    Returns {enrollment pk: per-module rows}; an enrollment on a project that is not a
+    Training has no rows. Each enrollment's project must be loaded or loadable.
+    """
+    enrollments = [enrollment for enrollment in enrollments if enrollment.project.project_type == 'TRAINING']
+    if not enrollments:
+        return {}
+    entry_model = type(enrollments[0]).time_entries.rel.related_model
+    attended = {}
+    for enrollment_id, day_number in entry_model.objects.filter(
+            enrollment_id__in=[enrollment.pk for enrollment in enrollments],
+            is_deleted=False, percent_complete=100).values_list('enrollment_id', 'day_number'):
+        attended.setdefault(enrollment_id, set()).add(day_number)
+    sheets = {}
+    for link in ProjectTopic.objects.filter(
+            project_id__in={enrollment.project_id for enrollment in enrollments}, is_deleted=False,
+    ).select_related('topic__activity').order_by('project_id', 'sequence', 'id'):
+        sheets.setdefault(link.project_id, []).append(link)
+
+    completion = {}
+    for enrollment in enrollments:
+        ticked = attended.get(enrollment.pk, set())
+        modules = OrderedDict()
+        for link in sheets.get(enrollment.project_id, []):
+            activity = link.topic.activity
+            module = modules.setdefault(activity.pk, dict(module={'id': activity.pk, 'name': activity.name},
+                                                          ticked_topics=0, total_topics=0))
+            module['total_topics'] += 1
+            module['ticked_topics'] += link.sequence in ticked
+        completion[enrollment.pk] = [{**module, 'percentage': 100 * module['ticked_topics'] / module['total_topics']}
+                                     for module in modules.values()]
+    return completion
